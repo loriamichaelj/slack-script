@@ -1,0 +1,17 @@
+# Runtime state
+.state/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
