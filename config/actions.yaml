@@ -1,0 +1,36 @@
+# First matching rule wins. match keys: category, direction, provider.
+actions:
+  - match: {category: errors, direction: spike}
+    steps:
+      - Check for a deploy or config change in the last hour
+      - Compare latency and healthy host count for the same resource
+      - Search application logs for the same window
+
+  - match: {category: latency, direction: spike}
+    steps:
+      - Check database and downstream call latency for the same window
+      - "Look for saturation: CPU, connections, queue depth"
+      - Check for a recent deploy or traffic change
+
+  - match: {category: cpu, direction: spike}
+    steps:
+      - Check whether traffic rose in the same window
+      - Identify the top CPU consumers on the resource
+      - Confirm autoscaling is working and has headroom
+
+  - match: {category: saturation, direction: spike}
+    steps:
+      - Check connection, memory and queue limits against current usage
+      - Look for leaks or a stuck consumer
+      - Scale up or shed load if it keeps climbing
+
+  - match: {category: traffic, direction: spike}
+    steps:
+      - Identify the source of the extra traffic (client, region, path)
+      - Check for a retry storm or abuse, and review rate limits
+
+  - match: {category: traffic, direction: drop}
+    steps:
+      - Confirm DNS, certificates and upstream health
+      - Check whether a client or region stopped sending traffic
+      - Check load balancer and routing changes
