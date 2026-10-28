@@ -1,0 +1,52 @@
+slack:
+  webhook_env: SLACK_WEBHOOK_URL   # name of the environment variable holding the webhook URL
+  cooldown_minutes: 60
+  max_alerts_per_run: 10
+
+state:
+  path: .state/alerts.json
+
+actions_file: actions.yaml         # relative to this file
+
+# Applied to every metric unless the metric overrides it.
+# `threshold` is left out on purpose: each detector has its own default
+# (mad 3.5, zscore 3.0, ewma 3.0, iqr 1.5). Set it only to override.
+defaults:
+  lookback: 24h
+  period: 5m
+  detector: mad
+  min_points: 30
+  sustained_points: 3
+
+metrics:
+  - name: alb-5xx
+    provider: aws
+    region: us-east-1
+    namespace: AWS/ApplicationELB
+    metric: HTTPCode_Target_5XX_Count
+    dimensions: {LoadBalancer: app/prod-api/abc123}
+    stat: Sum
+    category: errors
+    direction: spike
+    fill_missing: zero             # CloudWatch omits periods with no errors
+    min_abs_change: 5
+    runbook: https://wiki.example.com/runbooks/alb-5xx
+
+  - name: vm-cpu
+    provider: azure
+    resource_id: /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/prod/providers/Microsoft.Compute/virtualMachines/web-1
+    metric: Percentage CPU
+    aggregation: average
+    category: cpu
+    direction: spike
+    min_abs_change: 15
+
+  - name: gce-cpu
+    provider: gcp
+    project: my-project
+    metric_type: compute.googleapis.com/instance/cpu/utilization
+    filter: 'resource.labels.instance_id = "1234567890"'
+    aligner: ALIGN_MEAN
+    category: cpu
+    direction: spike
+    min_abs_change: 0.15           # GCP reports CPU as a 0 to 1 fraction
