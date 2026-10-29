@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Callable
 
@@ -57,8 +57,9 @@ def clean_points(points: list[Point], spec: MetricSpec, start: datetime, now: da
     return [Point(ts, by_ts[ts]) for ts in sorted(by_ts)]
 
 
-def _detect(spec: MetricSpec, series: Series, start: datetime, now: datetime) -> Anomaly | None:
-    points = clean_points(series.points, spec, start, now)
+def _detect(
+    spec: MetricSpec, series: Series, points: list[Point], start: datetime, now: datetime
+) -> Anomaly | None:
     expected = int((floor_ts(now, spec.period_seconds) - start) / timedelta(seconds=spec.period_seconds))
     if spec.fill_missing == "drop" and expected and len(points) < expected / 2:
         log.warning(
@@ -87,6 +88,7 @@ class MetricOutcome:
     series: Series | None = None
     anomaly: Anomaly | None = None
     error: str | None = None
+    values: list[float] = field(default_factory=list)  # cleaned, oldest first
 
 
 def scan(
@@ -105,7 +107,15 @@ def scan(
             outcomes.append(MetricOutcome(spec, error=f"{type(exc).__name__}: {exc}"))
             continue
         log.debug("%s: fetched %d points", spec.name, len(series.points))
-        outcomes.append(MetricOutcome(spec, series=series, anomaly=_detect(spec, series, start, now)))
+        points = clean_points(series.points, spec, start, now)
+        outcomes.append(
+            MetricOutcome(
+                spec,
+                series=series,
+                anomaly=_detect(spec, series, points, start, now),
+                values=[p.value for p in points],
+            )
+        )
     return outcomes
 
 
