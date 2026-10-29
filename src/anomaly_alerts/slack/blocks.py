@@ -5,7 +5,7 @@ from __future__ import annotations
 from ..detectors import DETECTORS
 from ..models import CRITICAL, SPIKE, Anomaly
 
-COLORS = {"critical": "#d1242f", "warning": "#d4a72c"}
+COLORS = {"critical": "#d1242f", "warning": "#d4a72c", "ok": "#2da44e"}
 PROVIDER_LABELS = {"aws": "AWS", "azure": "Azure", "gcp": "GCP"}
 _BARS = "▁▂▃▄▅▆▇█"
 
@@ -99,6 +99,41 @@ def build_payload(anomaly: Anomaly, steps: list[str]) -> dict:
 def build_overflow_payload(count: int, cap: int) -> dict:
     noun = "anomaly" if count == 1 else "anomalies"
     return {"text": f"{count} more {noun} suppressed (limit of {cap} alerts per run)"}
+
+
+def build_heartbeat_payload(
+    now, *, checked: int, total: int, anomalies: int, failed: list[str]
+) -> dict:
+    """Routine "still alive" message. Lists failed metrics by name only, never error text."""
+    degraded = bool(failed)
+    status = "DEGRADED" if degraded else "OK"
+    noun = "anomaly" if anomalies == 1 else "anomalies"
+    title = f"*Heartbeat: {status}*"
+    errors = f"{len(failed)} fetch error{'' if len(failed) == 1 else 's'}"
+    summary = (
+        f"Checked *{checked}* of *{total}* metrics | *{anomalies}* {noun} right now | *{errors}*"
+    )
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": title}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": summary}},
+    ]
+    if failed:
+        shown = failed[:10]
+        extra = f" and {len(failed) - len(shown)} more" if len(failed) > len(shown) else ""
+        listing = ", ".join(f"`{esc(name)}`" for name in shown) + extra
+        blocks.append(
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"Could not fetch: {listing}"}}
+        )
+    blocks.append(
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Run at {_stamp(now)} UTC"}]}
+    )
+    fallback = (
+        f"Heartbeat {status}: {checked}/{total} metrics checked, {anomalies} {noun}, {errors}"
+    )
+    return {
+        "text": fallback,
+        "attachments": [{"color": COLORS["warning" if degraded else "ok"], "blocks": blocks}],
+    }
 
 
 def _button(label: str, url: str) -> dict:

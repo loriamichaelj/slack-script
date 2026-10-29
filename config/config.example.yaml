@@ -1,5 +1,8 @@
 slack:
   webhook_env: SLACK_WEBHOOK_URL   # name of the environment variable holding the webhook URL
+  # Routine reports (`anomaly-alerts routine`) post here so they stay out of the alert channel.
+  # If this variable is unset, routine reports use webhook_env instead.
+  routine_webhook_env: SLACK_ROUTINE_WEBHOOK_URL
   cooldown_minutes: 60
   max_alerts_per_run: 10
 

@@ -18,7 +18,7 @@ class ConfigError(Exception):
 
 
 _TOP_KEYS = {"slack", "state", "actions_file", "defaults", "metrics"}
-_SLACK_KEYS = {"webhook_env", "cooldown_minutes", "max_alerts_per_run"}
+_SLACK_KEYS = {"webhook_env", "routine_webhook_env", "cooldown_minutes", "max_alerts_per_run"}
 
 # Keys that belong to MetricSpec itself; everything else on a metric is a cloud selector.
 _TUNING_KEYS = {
@@ -42,6 +42,7 @@ class SlackConfig:
     webhook_env: str = "SLACK_WEBHOOK_URL"
     cooldown_seconds: int = 3600
     max_alerts_per_run: int = 10
+    routine_webhook_env: str | None = None  # routine reports use webhook_env when unset
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,15 @@ def _choice(source: dict, key: str, default, options, label: str) -> str:
     if value not in options:
         raise ConfigError(f"{label}: {key} must be one of {sorted(options)}, got {value!r}")
     return value
+
+
+def _optional_str(source: dict, key: str, label: str) -> str | None:
+    value = source.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError(f"{label}: {key} must be a non-empty string, got {value!r}")
+    return value.strip()
 
 
 def _build_spec(entry, defaults: dict, index: int) -> MetricSpec:
@@ -159,6 +169,7 @@ def load(path: str | Path) -> Config:
         webhook_env=str(slack_raw.get("webhook_env", "SLACK_WEBHOOK_URL")),
         cooldown_seconds=int(_number(slack_raw, "cooldown_minutes", 60, "slack", minimum=0) * 60),
         max_alerts_per_run=_number(slack_raw, "max_alerts_per_run", 10, "slack", integer=True, minimum=1),
+        routine_webhook_env=_optional_str(slack_raw, "routine_webhook_env", "slack"),
     )
 
     defaults = raw.get("defaults") or {}
