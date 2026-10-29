@@ -46,6 +46,14 @@ class Series:
     scope: str  # region, subscription or project: part of the dedup fingerprint
     points: list[Point]  # oldest first
     console_url: str | None = None
+    group: str | None = None  # which group this is, when one metric is split by group_by
+
+
+def series_name(spec: MetricSpec, series: Series | None) -> str:
+    """The metric's name, with its group when the metric is split by group_by."""
+    if series is not None and series.group:
+        return f"{spec.name} [{series.group}]"
+    return spec.name
 
 
 @dataclass(frozen=True)

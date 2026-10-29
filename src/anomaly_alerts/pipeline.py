@@ -10,7 +10,7 @@ from typing import Callable
 from . import actions
 from .config import Config
 from .detectors.guards import evaluate
-from .models import SEVERITY_RANK, Anomaly, MetricSpec, Point, Series
+from .models import SEVERITY_RANK, Anomaly, MetricSpec, Point, Series, series_name
 from .providers import ProviderPool
 from .slack import blocks
 from .slack.client import SlackError
@@ -64,7 +64,7 @@ def _detect(
     if spec.fill_missing == "drop" and expected and len(points) < expected / 2:
         log.warning(
             "%s: data gap, only %d of about %d expected points (set fill_missing: zero "
-            "if a missing period means zero)", spec.name, len(points), expected
+            "if a missing period means zero)", series_name(spec, series), len(points), expected
         )
     detection = evaluate([p.value for p in points], spec)
     if detection is None:
@@ -101,21 +101,23 @@ def scan(
             continue
         start = floor_ts(now - timedelta(seconds=spec.lookback_seconds), spec.period_seconds)
         try:
-            series = pool.get(spec.provider).fetch(spec, start, now)
+            fetched = pool.get(spec.provider).fetch(spec, start, now)
         except Exception as exc:  # one bad metric must not stop the others
             log.error("%s: fetch failed: %s: %s", spec.name, type(exc).__name__, exc)
             outcomes.append(MetricOutcome(spec, error=f"{type(exc).__name__}: {exc}"))
             continue
-        log.debug("%s: fetched %d points", spec.name, len(series.points))
-        points = clean_points(series.points, spec, start, now)
-        outcomes.append(
-            MetricOutcome(
-                spec,
-                series=series,
-                anomaly=_detect(spec, series, points, start, now),
-                values=[p.value for p in points],
+        # A metric split by group_by comes back as several series, each tested on its own.
+        for series in fetched if isinstance(fetched, list) else [fetched]:
+            log.debug("%s: fetched %d points", series_name(spec, series), len(series.points))
+            points = clean_points(series.points, spec, start, now)
+            outcomes.append(
+                MetricOutcome(
+                    spec,
+                    series=series,
+                    anomaly=_detect(spec, series, points, start, now),
+                    values=[p.value for p in points],
+                )
             )
-        )
     return outcomes
 
 
@@ -159,7 +161,7 @@ def run(
         try:
             post(blocks.build_payload(anomaly, actions.steps_for(anomaly, rules)))
         except SlackError as exc:
-            log.error("%s: could not post alert: %s", anomaly.spec.name, exc)
+            log.error("%s: could not post alert: %s", series_name(anomaly.spec, anomaly.series), exc)
             result.post_errors += 1
             continue
         result.posted += 1

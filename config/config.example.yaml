@@ -54,6 +54,20 @@ metrics:
     direction: spike
     min_abs_change: 0.15           # GCP reports CPU as a 0 to 1 fraction
 
+  # Org-wide: query the scoping project, whose metrics scope covers every project in
+  # the org (terraform/gcp/org), and split by project so each one alerts on its own.
+  - name: org-error-logs
+    provider: gcp
+    project: slack-anomaly-dev
+    metric_type: logging.googleapis.com/log_entry_count
+    filter: 'metric.labels.severity = "ERROR"'
+    aligner: ALIGN_DELTA           # a count per period
+    group_by: [resource.labels.project_id]
+    category: errors
+    direction: spike
+    fill_missing: zero             # no error logs in a period means zero
+    min_abs_change: 10
+
 # Optional: spend per account for `anomaly-alerts routine --kind cost`, run once a day.
 # Reports the day lag_days ago against the average of the baseline_days before it.
 cost:

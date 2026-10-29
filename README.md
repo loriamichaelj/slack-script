@@ -36,6 +36,8 @@ Exit codes: `0` ok, `1` a fetch or post failed, `2` bad config.
 6. Add recommended next steps from `config/actions.yaml`.
 7. Post to Slack, most severe first, up to a limit per run.
 
+To watch a whole GCP org, point a metric at the scoping project and set `group_by: [resource.labels.project_id]`, so each project alerts on its own (see `terraform/gcp/org`).
+
 Credentials come from each cloud SDK's usual login, and read-only access is enough. The cost report also needs billing read access: `ce:GetCostAndUsage` on AWS, Cost Management Reader on Azure, and on GCP BigQuery Data Viewer on the billing export dataset plus BigQuery Job User.
 
 ## Routine reports

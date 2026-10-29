@@ -12,6 +12,7 @@ from .config import Config
 from .cost import CostProviderPool
 from .cost import report as cost_report
 from .detectors import DETECTORS
+from .models import series_name
 from .providers import ProviderPool
 from .slack import blocks
 from .slack.client import SlackError
@@ -89,7 +90,7 @@ def _row(outcome: pipeline.MetricOutcome) -> DigestRow:
     if series is None:
         return DigestRow(spec.name, spec.provider, FAILED)
     common = dict(
-        name=spec.name,
+        name=series_name(spec, series),
         provider=spec.provider,
         unit=series.unit,
         points=len(values),
