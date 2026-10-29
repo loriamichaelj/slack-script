@@ -16,19 +16,12 @@ Times are in `time_zone` (default `America/New_York`). Every job mounts the `sla
 - `terraform apply` (on merge, `DEV` environment) creates the jobs with a placeholder image.
 - `deploy dev` then builds the image, pushes it to Artifact Registry, and points the jobs at it. It also runs on any app change. Terraform ignores the image, so the two never undo each other.
 
-## First time: add the Slack webhooks
+## Slack webhooks
 
-Terraform creates the two secrets but never their values, so no webhook URL ends up in state. Until each has a version, the jobs fail to start. After the first apply:
-
-```bash
-printf %s "https://hooks.slack.com/services/..." | gcloud secrets versions add slack-webhook --data-file=- --project slack-anomaly-dev
-printf %s "https://hooks.slack.com/services/..." | gcloud secrets versions add slack-routine-webhook --data-file=- --project slack-anomaly-dev
-```
-
-Use the same URL for both to send everything to one channel.
+The jobs read the `slack-webhook` and `slack-routine-webhook` secrets, which SEED creates so they survive a DEV teardown. Cloud Run refuses to create a job whose secret has no version, so add both values first; the steps are in the [SEED README](../seed/README.md#slack-webhooks).
 
 ## Prerequisites
 
-- SEED applied (identities, state bucket, billing dataset).
+- SEED applied (identities, state bucket, billing dataset, webhook secrets with values).
 - `terraform/gcp/org` applied, or the jobs only see this project's metrics.
 - Billing export turned on, or the cost report shows "could not fetch costs".
