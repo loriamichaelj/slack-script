@@ -25,3 +25,13 @@ The jobs read the `slack-webhook` and `slack-routine-webhook` secrets, which SEE
 - SEED applied (identities, state bucket, billing dataset, webhook secrets with values).
 - `terraform/gcp/org` applied, or the jobs only see this project's metrics.
 - The billing account's Standard usage cost export (it goes to `tensile-runway-511902-q9.shiptrack_billing_export`), with read access for `anomaly-runtime` from `terraform/gcp/org`.
+
+## Tearing down
+
+Destroy is its own manual workflow, `terraform destroy`, and never runs on its own. Start it from the Actions tab, or:
+
+```bash
+gh workflow run terraform-destroy.yml --ref dev -f root=dev -f confirm=dev
+```
+
+It runs only from `dev`, only when `confirm` matches, and waits for approval in the `CI` environment. The summary shows the destroy plan before anything is removed. It deletes everything in this directory. The webhook secrets and their values live in SEED, so they survive and the next apply works straight away. SEED and the org metrics scope are never touched.
