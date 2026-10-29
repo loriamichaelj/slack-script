@@ -11,4 +11,6 @@ terraform init -backend-config="bucket=slack-anomaly-dev-seed-tfstate"
 terraform apply
 ```
 
+It also gives `anomaly-runtime` read-only access to the billing export dataset (`billing_dataset`), which lives in another org project.
+
 Apply SEED first, because the state lives in its bucket. Re-apply when a project is added to the org. To leave a project out, add it to `exclude_projects`.

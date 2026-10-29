@@ -86,3 +86,4 @@ cost:
       provider: gcp      # needs the Cloud Billing export to BigQuery turned on
       billing_table: my-billing-project.billing.gcp_billing_export_v1_XXXXXX
       project: slack-anomaly-dev
+      job_project: my-project  # optional: run the query here, needing only read access to the table

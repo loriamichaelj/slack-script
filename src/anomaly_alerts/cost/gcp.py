@@ -72,8 +72,9 @@ class GcpCostProvider:
         sql = _QUERY.format(
             table=table, project_filter="AND project.id = @project" if project else ""
         )
-        # Run the query in the project that owns the export table.
-        client = self._client(table.split(".")[0])
+        # Run the query in job_project when set, so the reader needs only read access to
+        # an export table that lives in another project. Otherwise use the table's project.
+        client = self._client(str(spec.selector.get("job_project") or table.split(".")[0]))
         result = client.query(sql, job_config=self._job_config(start, end, project)).result()
 
         rows: list[DailyCost] = []

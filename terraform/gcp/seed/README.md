@@ -78,7 +78,7 @@ Use the same URL for both to send everything to one channel. The DEV jobs cannot
 
 Two one-time steps after the first apply:
 
-1. **Billing export.** In the console, open Billing → Billing export → BigQuery export, edit **Standard usage cost**, and choose project `slack-anomaly-dev`, dataset `billing_export`. There is no API for this. Data starts arriving within about a day; the table is named `gcp_billing_export_v1_<billing account ID>`.
+1. **Billing export.** The billing account's Standard usage cost export already goes to `tensile-runway-511902-q9.shiptrack_billing_export`, and a billing account has only one such export, so the cost report reads that table (read access comes from `../org`). The `billing_export` dataset here stays empty unless the export is moved.
 2. **Org metrics.** Apply [`../org`](../org/README.md) so the job can read metrics from every project in the org.
 
 ## Protection against deletion

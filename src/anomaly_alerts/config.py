@@ -40,7 +40,7 @@ _COST_KEYS = {"lag_days", "baseline_days", "alert_pct", "min_abs_change", "top_s
 _COST_SELECTORS = {
     "aws": (set(), {"linked_account"}),
     "azure": ({"scope"}, set()),
-    "gcp": ({"billing_table"}, {"project"}),
+    "gcp": ({"billing_table"}, {"project", "job_project"}),
 }
 
 _DURATION = re.compile(r"^(\d+)\s*([smhd])$")
