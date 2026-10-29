@@ -13,6 +13,8 @@ anomaly-alerts --config config/config.yaml --dry-run
 
 Options: `--dry-run` prints payloads without posting, `--only aws|azure|gcp` runs one cloud, `--verbose` turns on debug logging. Exit codes: `0` ok, `1` a fetch or post failed, `2` bad config.
 
+Routine reports post on a schedule whether or not anything is wrong. `anomaly-alerts routine --config config/config.yaml` posts a heartbeat: how many metrics were fetched, how many anomalies exist right now, and which metrics could not be fetched. Give it its own Slack channel with `routine_webhook_env`; without one it uses the main webhook. Schedule it separately from the anomaly run, for example once a day.
+
 Detectors: `mad` (default), `zscore`, `ewma`, `iqr`. Recommended actions live in `config/actions.yaml`.
 
 Scheduler setups: [cron](examples/cron.md), [AWS EventBridge](examples/eventbridge.md), [GCP Cloud Scheduler and Azure](examples/cloud-scheduler.md).

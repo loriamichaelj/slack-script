@@ -79,6 +79,36 @@ def _detect(spec: MetricSpec, series: Series, start: datetime, now: datetime) ->
     )
 
 
+@dataclass
+class MetricOutcome:
+    """What one metric produced in a scan: a series (and maybe an anomaly), or an error."""
+
+    spec: MetricSpec
+    series: Series | None = None
+    anomaly: Anomaly | None = None
+    error: str | None = None
+
+
+def scan(
+    config: Config, pool: ProviderPool, now: datetime, only: str | None = None
+) -> list[MetricOutcome]:
+    """Fetch and test every configured metric. Shared by anomaly runs and routine reports."""
+    outcomes = []
+    for spec in config.metrics:
+        if only and spec.provider != only:
+            continue
+        start = floor_ts(now - timedelta(seconds=spec.lookback_seconds), spec.period_seconds)
+        try:
+            series = pool.get(spec.provider).fetch(spec, start, now)
+        except Exception as exc:  # one bad metric must not stop the others
+            log.error("%s: fetch failed: %s: %s", spec.name, type(exc).__name__, exc)
+            outcomes.append(MetricOutcome(spec, error=f"{type(exc).__name__}: {exc}"))
+            continue
+        log.debug("%s: fetched %d points", spec.name, len(series.points))
+        outcomes.append(MetricOutcome(spec, series=series, anomaly=_detect(spec, series, start, now)))
+    return outcomes
+
+
 def run(
     config: Config,
     pool: ProviderPool,
@@ -94,21 +124,13 @@ def run(
     result = RunResult()
     found: list[Anomaly] = []
 
-    for spec in config.metrics:
-        if only and spec.provider != only:
-            continue
-        start = floor_ts(now - timedelta(seconds=spec.lookback_seconds), spec.period_seconds)
-        try:
-            series = pool.get(spec.provider).fetch(spec, start, now)
-        except Exception as exc:  # one bad metric must not stop the others
-            log.error("%s: fetch failed: %s: %s", spec.name, type(exc).__name__, exc)
+    for outcome in scan(config, pool, now, only):
+        if outcome.series is None:
             result.fetch_errors += 1
             continue
         result.fetched += 1
-        log.debug("%s: fetched %d points", spec.name, len(series.points))
-        anomaly = _detect(spec, series, start, now)
-        if anomaly:
-            found.append(anomaly)
+        if outcome.anomaly:
+            found.append(outcome.anomaly)
     result.anomalies = len(found)
 
     fresh = []
