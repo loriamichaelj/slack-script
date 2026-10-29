@@ -20,7 +20,7 @@ Remove `--dry-run` to post to Slack.
 | `anomaly-alerts --config FILE` | Alert on anomalies |
 | `anomaly-alerts routine --config FILE` | Post a heartbeat: metrics checked, anomalies, failures |
 | `... routine --kind digest` | Post every metric's latest value against its baseline |
-| `... routine --kind cost` | Post yesterday's spend per account (cloud adapters coming) |
+| `... routine --kind cost` | Post yesterday's spend per account (AWS now; Azure and GCP coming) |
 
 Options: `--dry-run` prints instead of posting, `--only aws|azure|gcp` runs one cloud, `--verbose` adds debug logs.
 
@@ -30,7 +30,7 @@ Exit codes: `0` ok, `1` a fetch or post failed, `2` bad config.
 
 Fetch each metric, then detect anomalies (`mad` by default, or `zscore`, `ewma`, `iqr`). Skip repeats during a cooldown, add recommended steps from `config/actions.yaml`, and post to Slack.
 
-Credentials come from each cloud SDK's usual login, and read-only access is enough.
+Credentials come from each cloud SDK's usual login, and read-only access is enough. The cost report on AWS also needs `ce:GetCostAndUsage`.
 
 ## Scheduling
 
