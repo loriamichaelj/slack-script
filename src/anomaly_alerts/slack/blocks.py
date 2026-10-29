@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ..detectors import DETECTORS
-from ..models import CRITICAL, SPIKE, Anomaly
+from ..models import CRITICAL, SPIKE, Anomaly, series_name
 
 COLORS = {"critical": "#d1242f", "warning": "#d4a72c", "ok": "#2da44e"}
 PROVIDER_LABELS = {"aws": "AWS", "azure": "Azure", "gcp": "GCP"}
@@ -46,7 +46,8 @@ def build_payload(anomaly: Anomaly, steps: list[str]) -> dict:
     arrow = "↑" if det.direction == SPIKE else "↓"
     unit = f" {esc(series.unit)}" if series.unit else ""
 
-    title = f"*[{severity}]* {provider} | {esc(spec.name)} | {esc(series.metric)}"
+    name = series_name(spec, series)
+    title = f"*[{severity}]* {provider} | {esc(name)} | {esc(series.metric)}"
     numbers = (
         f"{arrow} Observed *{fmt(det.observed)}{unit}* vs baseline {module.CENTER_LABEL} "
         f"*{fmt(det.center)}* ({module.SCORE_LABEL} = {det.score:+.1f}, "
@@ -87,7 +88,7 @@ def build_payload(anomaly: Anomaly, steps: list[str]) -> dict:
         blocks.append({"type": "actions", "elements": buttons})
 
     fallback = (
-        f"[{severity}] {provider} {spec.name} {series.metric}: "
+        f"[{severity}] {provider} {name} {series.metric}: "
         f"{fmt(det.observed)} vs baseline {fmt(det.center)}"
     )
     return {

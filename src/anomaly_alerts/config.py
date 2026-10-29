@@ -32,7 +32,7 @@ _METRIC_KEYS = _TUNING_KEYS | {"name", "provider"}
 _SELECTORS = {
     "aws": ({"region", "namespace", "metric"}, {"dimensions", "stat"}),
     "azure": ({"resource_id", "metric"}, {"aggregation", "namespace"}),
-    "gcp": ({"project", "metric_type"}, {"filter", "aligner", "reducer"}),
+    "gcp": ({"project", "metric_type"}, {"filter", "aligner", "reducer", "group_by"}),
 }
 
 _COST_KEYS = {"lag_days", "baseline_days", "alert_pct", "min_abs_change", "top_services", "accounts"}
@@ -119,6 +119,12 @@ def _build_spec(entry, defaults: dict, index: int) -> MetricSpec:
     if provider not in _SELECTORS:
         raise ConfigError(f"{label}: provider must be one of {sorted(_SELECTORS)}, got {provider!r}")
     selector = _selector(entry, _METRIC_KEYS, _SELECTORS, provider, label)
+    group_by = selector.get("group_by")
+    if group_by is not None and (
+        not isinstance(group_by, list) or not group_by
+        or not all(isinstance(f, str) and f.strip() for f in group_by)
+    ):
+        raise ConfigError(f"{label}: group_by must be a list of label names, got {group_by!r}")
 
     merged = {**defaults, **{k: v for k, v in entry.items() if k in _TUNING_KEYS}}
     detector = _choice(merged, "detector", "mad", DETECTORS, label)
