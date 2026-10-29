@@ -219,5 +219,66 @@ def build_digest_payload(now, rows) -> dict:
     return {"text": fallback, "attachments": [{"color": color, "blocks": blocks}]}
 
 
+def money(amount: float, currency: str) -> str:
+    return f"{amount:,.2f} {esc(currency)}"
+
+
+def _pct_text(pct: float | None) -> str:
+    return "" if pct is None else f" ({pct:+.0f}%)"
+
+
+def _cost_section(summary) -> str:
+    """One account: the day's total, its change, month to date, and the top services."""
+    provider = PROVIDER_LABELS.get(summary.provider, summary.provider)
+    name = f"*{esc(summary.spec.name)}* ({provider})"
+    if summary.total is None:
+        return f":hourglass_flowing_sand: {name}: no cost data for {summary.day} yet"
+    icon = ":chart_with_upwards_trend:" if summary.spike else ":large_green_circle:"
+    line = f"{icon} {name}: *{money(summary.total, summary.currency)}*"
+    if summary.baseline is not None:
+        line += f" vs {money(summary.baseline, summary.currency)} daily average{_pct_text(summary.change_pct)}"
+    line += f" | month to date {money(summary.month_to_date, summary.currency)}"
+    services = [
+        f"   {esc(s.service)}: {money(s.amount, summary.currency)}{_pct_text(s.change_pct)}"
+        for s in summary.services
+    ]
+    return "\n".join([line, *services])
+
+
+def build_cost_payload(now, day, summaries, failed) -> dict:
+    """Routine spend report. Failed accounts are named only, never with error text."""
+    spikes = sum(1 for s in summaries if s.spike)
+    if spikes:
+        status, color = "SPIKE", COLORS["warning"]
+    elif failed:
+        status, color = "DEGRADED", COLORS["warning"]
+    else:
+        status, color = "OK", COLORS["ok"]
+
+    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": f"*Cost report for {day}: {status}*"}}]
+    currencies = {s.currency for s in summaries if s.total is not None}
+    if len(currencies) == 1 and len(summaries) > 1:
+        total = sum(s.total for s in summaries if s.total is not None)
+        blocks.append(
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"Total: *{money(total, currencies.pop())}*"}}
+        )
+    lines = [_cost_section(s) for s in sorted(summaries, key=lambda s: (not s.spike, s.spec.name))]
+    lines += [
+        f":warning: *{esc(spec.name)}* ({PROVIDER_LABELS.get(spec.provider, spec.provider)}): could not fetch costs"
+        for spec in failed
+    ]
+    blocks += [{"type": "section", "text": {"type": "mrkdwn", "text": c}} for c in _chunk(lines)]
+    blocks.append(
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Run at {_stamp(now)} UTC"}]}
+    )
+    parts = [f"{len(summaries) + len(failed)} account{'s' if len(summaries) + len(failed) != 1 else ''}"]
+    if spikes:
+        parts.append(f"{spikes} spike{'s' if spikes != 1 else ''}")
+    if failed:
+        parts.append(f"{len(failed)} fetch error{'s' if len(failed) != 1 else ''}")
+    fallback = f"Cost report for {day} {status}: " + ", ".join(parts)
+    return {"text": fallback, "attachments": [{"color": color, "blocks": blocks}]}
+
+
 def _button(label: str, url: str) -> dict:
     return {"type": "button", "text": {"type": "plain_text", "text": label}, "url": url}

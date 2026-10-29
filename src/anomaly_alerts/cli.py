@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 from . import actions, config, pipeline, routine
+from .cost import CostProviderPool
 from .providers import ProviderPool
 from .slack import client
 from .state import StateStore
@@ -50,7 +51,7 @@ def _parse(argv) -> argparse.Namespace:
         "--kind",
         choices=routine.KINDS,
         default="heartbeat",
-        help="routine report to post: heartbeat (default) or digest (routine command only)",
+        help="routine report to post: heartbeat (default), digest or cost (routine command only)",
     )
     parser.add_argument("--dry-run", action="store_true", help="print payloads, do not post or save state")
     parser.add_argument("--only", choices=["aws", "azure", "gcp"], help="run one cloud only")
@@ -81,6 +82,8 @@ def main(argv=None) -> int:
         cfg = config.load(args.config)
         rules = actions.load_rules(cfg.actions_path)
         is_routine = args.command == "routine"
+        if is_routine and args.kind == "cost" and cfg.cost is None:
+            raise config.ConfigError("the cost report needs a cost section in the config")
         env_name = _webhook_env(cfg, is_routine)
         webhook = os.environ.get(env_name, "")
         if not webhook and not args.dry_run:
@@ -99,9 +102,10 @@ def main(argv=None) -> int:
             client.post(webhook, payload)
 
     if is_routine:
-        result = routine.run(args.kind, cfg, ProviderPool(), post, only=args.only)
+        pool = CostProviderPool() if args.kind == "cost" else ProviderPool()
+        result = routine.run(args.kind, cfg, pool, post, only=args.only)
         log.info(
-            "routine %s complete: %d of %d metrics fetched, %d anomalies, %d fetch errors, %d post errors",
+            "routine %s complete: %d of %d fetched, %d flagged, %d fetch errors, %d post errors",
             args.kind, result.checked, result.total, result.anomalies,
             result.fetch_errors, result.post_errors,
         )

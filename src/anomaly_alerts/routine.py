@@ -9,6 +9,8 @@ from typing import Callable
 
 from . import pipeline
 from .config import Config
+from .cost import CostProviderPool
+from .cost import report as cost_report
 from .detectors import DETECTORS
 from .providers import ProviderPool
 from .slack import blocks
@@ -16,7 +18,7 @@ from .slack.client import SlackError
 
 log = logging.getLogger(__name__)
 
-KINDS = ("heartbeat", "digest")
+KINDS = ("heartbeat", "digest", "cost")
 
 # Digest row statuses, worst first. The order is also the sort order in the message.
 CRITICAL, WARNING, FAILED, LEARNING, OK = "critical", "warning", "failed", "learning", "ok"
@@ -127,6 +129,44 @@ def run_digest(
     return result
 
 
+def run_cost(
+    config: Config,
+    pool: CostProviderPool,
+    post: Callable[[dict], None],
+    now: datetime | None = None,
+    *,
+    only: str | None = None,
+) -> RoutineResult:
+    """Yesterday's spend per account against its recent average. Needs a cost section."""
+    if config.cost is None:
+        raise ValueError("the cost report needs a cost section in the config")
+    now = now or datetime.now(UTC)
+    settings = config.cost.settings
+    day = cost_report.report_day(now.date(), settings)
+    start, end = cost_report.fetch_window(day, settings)
+
+    summaries, failed = [], []
+    for spec in config.cost.accounts:
+        if only and spec.provider != only:
+            continue
+        try:
+            data = pool.get(spec.provider).fetch(spec, start, end)
+        except Exception as exc:  # one bad account must not stop the others
+            log.error("%s: cost fetch failed: %s: %s", spec.name, type(exc).__name__, exc)
+            failed.append(spec)
+            continue
+        summaries.append(cost_report.summarize(spec, data, day, settings))
+
+    result = RoutineResult(
+        checked=len(summaries),
+        total=len(summaries) + len(failed),
+        anomalies=sum(1 for s in summaries if s.spike),
+        fetch_errors=len(failed),
+    )
+    _post(post, blocks.build_cost_payload(now, day, summaries, failed), result, "cost report")
+    return result
+
+
 def _post(post: Callable[[dict], None], payload: dict, result: RoutineResult, label: str) -> None:
     try:
         post(payload)
@@ -137,7 +177,7 @@ def _post(post: Callable[[dict], None], payload: dict, result: RoutineResult, la
         result.posted += 1
 
 
-_RUNNERS = {"heartbeat": run_heartbeat, "digest": run_digest}
+_RUNNERS = {"heartbeat": run_heartbeat, "digest": run_digest, "cost": run_cost}
 
 
 def run(kind: str, *args, **kwargs) -> RoutineResult:

@@ -9,15 +9,16 @@ from urllib.parse import urlparse
 
 import yaml
 
+from .cost.report import CostSettings
 from .detectors import DETECTORS
-from .models import BOTH, DROP, SPIKE, MetricSpec
+from .models import BOTH, DROP, SPIKE, CostSpec, MetricSpec
 
 
 class ConfigError(Exception):
     pass
 
 
-_TOP_KEYS = {"slack", "state", "actions_file", "defaults", "metrics"}
+_TOP_KEYS = {"slack", "state", "actions_file", "defaults", "metrics", "cost"}
 _SLACK_KEYS = {"webhook_env", "routine_webhook_env", "cooldown_minutes", "max_alerts_per_run"}
 
 # Keys that belong to MetricSpec itself; everything else on a metric is a cloud selector.
@@ -33,6 +34,14 @@ _SELECTORS = {
     "gcp": ({"project", "metric_type"}, {"filter", "aligner", "reducer"}),
 }
 
+_COST_KEYS = {"lag_days", "baseline_days", "alert_pct", "min_abs_change", "top_services", "accounts"}
+# Required and optional selector keys per cloud for cost accounts.
+_COST_SELECTORS = {
+    "aws": (set(), {"linked_account"}),
+    "azure": ({"scope"}, set()),
+    "gcp": ({"billing_table"}, {"project"}),
+}
+
 _DURATION = re.compile(r"^(\d+)\s*([smhd])$")
 _UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 
@@ -46,11 +55,18 @@ class SlackConfig:
 
 
 @dataclass(frozen=True)
+class CostConfig:
+    settings: CostSettings
+    accounts: list[CostSpec]
+
+
+@dataclass(frozen=True)
 class Config:
     slack: SlackConfig
     state_path: Path
     actions_path: Path | None
     metrics: list[MetricSpec]
+    cost: CostConfig | None = None  # only routine cost reports need it
 
 
 def parse_duration(value, label: str) -> int:
@@ -101,14 +117,7 @@ def _build_spec(entry, defaults: dict, index: int) -> MetricSpec:
     provider = entry.get("provider")
     if provider not in _SELECTORS:
         raise ConfigError(f"{label}: provider must be one of {sorted(_SELECTORS)}, got {provider!r}")
-    required, optional = _SELECTORS[provider]
-    selector = {k: v for k, v in entry.items() if k not in _METRIC_KEYS}
-    unknown = set(selector) - required - optional
-    if unknown:
-        raise ConfigError(f"{label}: unknown key(s) {sorted(unknown)} for provider {provider}")
-    missing = required - set(selector)
-    if missing:
-        raise ConfigError(f"{label}: missing required key(s) {sorted(missing)} for provider {provider}")
+    selector = _selector(entry, _METRIC_KEYS, _SELECTORS, provider, label)
 
     merged = {**defaults, **{k: v for k, v in entry.items() if k in _TUNING_KEYS}}
     detector = _choice(merged, "detector", "mad", DETECTORS, label)
@@ -145,6 +154,56 @@ def _build_spec(entry, defaults: dict, index: int) -> MetricSpec:
         fill_missing=_choice(merged, "fill_missing", "drop", {"drop", "zero"}, label),
         runbook=runbook,
     )
+
+
+def _selector(entry: dict, reserved: set, selectors: dict, provider: str, label: str) -> dict:
+    required, optional = selectors[provider]
+    selector = {k: v for k, v in entry.items() if k not in reserved}
+    unknown = set(selector) - required - optional
+    if unknown:
+        raise ConfigError(f"{label}: unknown key(s) {sorted(unknown)} for provider {provider}")
+    missing = required - set(selector)
+    if missing:
+        raise ConfigError(f"{label}: missing required key(s) {sorted(missing)} for provider {provider}")
+    return selector
+
+
+def _build_cost(raw) -> CostConfig:
+    if not isinstance(raw, dict):
+        raise ConfigError("cost: must be a mapping")
+    unknown = set(raw) - _COST_KEYS
+    if unknown:
+        raise ConfigError(f"cost: unknown key(s) {sorted(unknown)}")
+    settings = CostSettings(
+        lag_days=_number(raw, "lag_days", 1, "cost", integer=True, minimum=0, maximum=7),
+        baseline_days=_number(raw, "baseline_days", 7, "cost", integer=True, minimum=1, maximum=28),
+        alert_pct=_number(raw, "alert_pct", 25, "cost", minimum=1),
+        min_abs_change=_number(raw, "min_abs_change", 1, "cost", minimum=0),
+        top_services=_number(raw, "top_services", 5, "cost", integer=True, minimum=1, maximum=20),
+    )
+    entries = raw.get("accounts")
+    if not isinstance(entries, list) or not entries:
+        raise ConfigError("cost: accounts must list at least one account")
+    accounts = []
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            raise ConfigError(f"cost.accounts[{index}]: must be a mapping")
+        name = entry.get("name")
+        if not name or not isinstance(name, str):
+            raise ConfigError(f"cost.accounts[{index}]: name is required")
+        label = f"cost account {name!r}"
+        provider = entry.get("provider")
+        if provider not in _COST_SELECTORS:
+            raise ConfigError(
+                f"{label}: provider must be one of {sorted(_COST_SELECTORS)}, got {provider!r}"
+            )
+        selector = _selector(entry, {"name", "provider"}, _COST_SELECTORS, provider, label)
+        accounts.append(CostSpec(name=name, provider=provider, selector=selector))
+    names = [a.name for a in accounts]
+    dupes = sorted({n for n in names if names.count(n) > 1})
+    if dupes:
+        raise ConfigError(f"cost: duplicate account name(s) {dupes}")
+    return CostConfig(settings, accounts)
 
 
 def load(path: str | Path) -> Config:
@@ -192,4 +251,5 @@ def load(path: str | Path) -> Config:
         state_path=Path((raw.get("state") or {}).get("path", ".state/alerts.json")),
         actions_path=(path.parent / actions_file) if actions_file else None,
         metrics=metrics,
+        cost=_build_cost(raw["cost"]) if raw.get("cost") is not None else None,
     )
