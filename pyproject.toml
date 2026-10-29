@@ -13,7 +13,7 @@ dependencies = ["PyYAML>=6"]
 [project.optional-dependencies]
 aws = ["boto3>=1.28"]
 azure = ["azure-identity>=1.15", "azure-monitor-query>=1.3,<2"]
-gcp = ["google-cloud-monitoring>=2.15"]
+gcp = ["google-cloud-monitoring>=2.15", "google-cloud-bigquery>=3.10"]
 all = ["anomaly-alerts[aws,azure,gcp]"]
 dev = ["pytest>=7"]
 

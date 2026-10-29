@@ -9,6 +9,8 @@ from .base import CostProvider
 # Filled in as each cloud's adapter lands.
 _PROVIDERS: dict[str, tuple[str, str]] = {
     "aws": ("anomaly_alerts.cost.aws", "AwsCostProvider"),
+    "azure": ("anomaly_alerts.cost.azure", "AzureCostProvider"),
+    "gcp": ("anomaly_alerts.cost.gcp", "GcpCostProvider"),
 }
 
 
