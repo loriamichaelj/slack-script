@@ -29,6 +29,7 @@ resource "google_service_account" "runtime" {
 
 locals {
   seed_admin_roles = [
+    "roles/bigquery.dataOwner",
     "roles/iam.serviceAccountAdmin",
     "roles/iam.workloadIdentityPoolAdmin",
     "roles/resourcemanager.projectIamAdmin",
@@ -69,8 +70,9 @@ resource "google_service_account_iam_member" "deployer_acts_as_runtime" {
   member             = "serviceAccount:${google_service_account.dev_deployer.email}"
 }
 
-# The job reads Cloud Monitoring metrics. Secret and app-state access are granted
-# per resource by DEV.
+# The job reads Cloud Monitoring metrics. With terraform/gcp/org applied, this
+# project's metrics scope covers the whole org, so this one grant reads them all.
+# Secret and app-state access are granted per resource by DEV.
 resource "google_project_iam_member" "runtime_monitoring" {
   project = var.project_id
   role    = "roles/monitoring.viewer"

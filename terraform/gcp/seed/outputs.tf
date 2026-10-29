@@ -24,3 +24,8 @@ output "state_buckets" {
   description = "Terraform state buckets by environment."
   value       = { for k, b in google_storage_bucket.state : k => b.name }
 }
+
+output "billing_export_dataset" {
+  description = "Pick this dataset when turning on the Cloud Billing export to BigQuery."
+  value       = "${var.project_id}.${google_bigquery_dataset.billing_export.dataset_id}"
+}
