@@ -53,3 +53,5 @@ Set `slack.routine_webhook_env` to send these to their own channel. Failed metri
 ## Scheduling
 
 [cron](examples/cron.md) · [AWS EventBridge](examples/eventbridge.md) · [GCP Cloud Scheduler and Azure](examples/cloud-scheduler.md)
+
+This repo's own deployment runs on GCP Cloud Run: see [terraform/gcp/dev](terraform/gcp/dev/README.md).

@@ -10,7 +10,7 @@ on:
       root:
         description: Terraform directory under terraform/gcp to apply
         type: choice
-        options: [seed]
+        options: [seed, dev]
 
 permissions:
   contents: read

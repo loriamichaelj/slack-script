@@ -24,8 +24,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # terraform/gcp/org is applied locally by an org admin; add dev once it exists.
-        root: [seed]
+        # terraform/gcp/org is applied locally by an org admin.
+        root: [seed, dev]
     defaults:
       run:
         working-directory: terraform/gcp/${{ matrix.root }}
@@ -66,9 +66,25 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_PLAN_SERVICE_ACCOUNT }}
 
+      - if: steps.gcp.outputs.ready == 'true'
+        uses: google-github-actions/setup-gcloud@v2
+
+      # Terraform creates an empty state the first time it opens a backend, which the
+      # read-only planner cannot do. With no state yet, plan against an empty local
+      # one instead: everything shows as new, which is exactly what an apply would do.
       - name: Init
         if: steps.gcp.outputs.ready == 'true'
-        run: terraform init -input=false -reconfigure -backend-config="bucket=${GCP_PROJECT}-${{ matrix.root }}-tfstate"
+        env:
+          ROOT: ${{ matrix.root }}
+        run: |
+          bucket="${GCP_PROJECT}-${ROOT}-tfstate"
+          if gcloud storage objects describe "gs://${bucket}/${ROOT}/default.tfstate" >/dev/null 2>&1; then
+            terraform init -input=false -reconfigure -backend-config="bucket=${bucket}"
+          else
+            echo "::notice::No ${ROOT} state yet: planning against an empty state, so every resource shows as new."
+            printf 'terraform {\n  backend "local" {}\n}\n' > backend_override.tf
+            terraform init -input=false -reconfigure
+          fi
 
       # The planner cannot write to the state bucket, so the plan takes no lock.
       - name: Plan

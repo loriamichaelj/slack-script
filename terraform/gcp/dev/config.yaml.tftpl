@@ -1,0 +1,53 @@
+# Rendered by terraform/gcp/dev and mounted into every job. Edit the template, not
+# the bucket object: the next apply overwrites it.
+slack:
+  webhook_env: SLACK_WEBHOOK_URL
+  routine_webhook_env: SLACK_ROUTINE_WEBHOOK_URL
+  cooldown_minutes: 60
+  max_alerts_per_run: 10
+
+state:
+  path: ${mount_path}/state/alerts.json
+
+actions_file: /app/config/actions.yaml
+
+defaults:
+  lookback: 24h
+  period: 5m
+  detector: mad
+  min_points: 30
+  sustained_points: 3
+
+# Both metrics query the scoping project, whose metrics scope covers the whole org,
+# and split by project so each project alerts on its own.
+metrics:
+  - name: org-error-logs
+    provider: gcp
+    project: ${project_id}
+    metric_type: logging.googleapis.com/log_entry_count
+    filter: 'metric.labels.severity = "ERROR"'
+    aligner: ALIGN_DELTA
+    group_by: [resource.labels.project_id]
+    category: errors
+    direction: spike
+    fill_missing: zero
+    min_abs_change: 10
+
+  - name: org-api-errors
+    provider: gcp
+    project: ${project_id}
+    metric_type: serviceruntime.googleapis.com/api/request_count
+    filter: 'metric.labels.response_code_class = "5xx"'
+    aligner: ALIGN_DELTA
+    group_by: [resource.labels.project_id]
+    category: errors
+    direction: spike
+    fill_missing: zero
+    min_abs_change: 5
+
+cost:
+  lag_days: 2            # the GCP billing export runs about a day behind
+  accounts:
+    - name: gcp-billing
+      provider: gcp
+      billing_table: ${billing_table}
