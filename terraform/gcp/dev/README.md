@@ -24,4 +24,4 @@ The jobs read the `slack-webhook` and `slack-routine-webhook` secrets, which SEE
 
 - SEED applied (identities, state bucket, billing dataset, webhook secrets with values).
 - `terraform/gcp/org` applied, or the jobs only see this project's metrics.
-- Billing export turned on, or the cost report shows "could not fetch costs".
+- The billing account's Standard usage cost export (it goes to `tensile-runway-511902-q9.shiptrack_billing_export`), with read access for `anomaly-runtime` from `terraform/gcp/org`.

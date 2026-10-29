@@ -16,7 +16,7 @@ variable "time_zone" {
 }
 
 variable "billing_table" {
-  description = "Cloud Billing export table read by the cost report."
+  description = "Cloud Billing export table read by the cost report. The billing account's Standard export already goes to shiptrack; terraform/gcp/org grants read access to it."
   type        = string
-  default     = "slack-anomaly-dev.billing_export.gcp_billing_export_v1_01B37B_E44281_12EC5F"
+  default     = "tensile-runway-511902-q9.shiptrack_billing_export.gcp_billing_export_v1_01B37B_E44281_12EC5F"
 }

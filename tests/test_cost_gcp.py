@@ -73,6 +73,11 @@ class GcpCostProviderTests(unittest.TestCase):
         self.fetch([])
         self.assertEqual(self.projects, ["billing-proj"])
 
+    def test_job_project_runs_the_query_elsewhere(self):
+        _, fake = self.fetch([], job_project="slack-anomaly-dev")
+        self.assertEqual(self.projects, ["slack-anomaly-dev"])
+        self.assertIn(f"FROM `{TABLE}`", fake.queries[0][0])  # still reads the export table
+
     def test_project_filter_is_a_parameter(self):
         data, fake = self.fetch([], project="slack-anomaly-dev")
         self.assertIn("AND project.id = @project", fake.queries[0][0])
