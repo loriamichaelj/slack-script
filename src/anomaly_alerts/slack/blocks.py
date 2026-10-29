@@ -102,29 +102,76 @@ def build_overflow_payload(count: int, cap: int) -> dict:
     return {"text": f"{count} more {noun} suppressed (limit of {cap} alerts per run)"}
 
 
+def _ago(now, then) -> str:
+    minutes = max(0, int((now - then).total_seconds() // 60))
+    if minutes < 1:
+        return "under a minute ago"
+    if minutes < 60:
+        return f"{minutes} min ago"
+    if minutes < 48 * 60:
+        return f"{minutes // 60} h ago"
+    return f"{minutes // (24 * 60)} days ago"
+
+
+def _listing(items: list[str], limit: int = 10) -> str:
+    shown = items[:limit]
+    extra = f" and {len(items) - len(shown)} more" if len(items) > len(shown) else ""
+    return ", ".join(shown) + extra
+
+
 def build_heartbeat_payload(
-    now, *, checked: int, total: int, anomalies: int, failed: list[str]
+    now,
+    *,
+    checked: int,
+    total: int,
+    flagged: list[tuple[str, str, str]],
+    failed: list[str],
+    clouds: dict[str, tuple[int, int]] | None = None,
+    last_alert_run=None,
+    alerted_24h: int = 0,
 ) -> dict:
-    """Routine "still alive" message. Lists failed metrics by name only, never error text."""
+    """Routine "still alive" message. Lists metrics by name only, never error text.
+
+    flagged holds (name, provider, severity) for each current anomaly, worst first.
+    clouds maps each provider to (fetched, total). last_alert_run is when the alert
+    job last saved its state, or None if it never has.
+    """
     degraded = bool(failed)
     status = "DEGRADED" if degraded else "OK"
+    anomalies = len(flagged)
     noun = "anomaly" if anomalies == 1 else "anomalies"
     title = f"*Heartbeat: {status}*"
     errors = f"{len(failed)} fetch error{'' if len(failed) == 1 else 's'}"
     summary = (
         f"Checked *{checked}* of *{total}* metrics | *{anomalies}* {noun} right now | *{errors}*"
     )
+    lines = [summary]
+    if clouds:
+        lines.append(
+            "By cloud: "
+            + " | ".join(f"{PROVIDER_LABELS.get(p, p)} {ok}/{n}" for p, (ok, n) in clouds.items())
+        )
+    if flagged:
+        items = [
+            f"{_DIGEST_ICONS.get(sev, '')} `{esc(name)}` ({PROVIDER_LABELS.get(p, p)})".lstrip()
+            for name, p, sev in flagged
+        ]
+        lines.append(f"Anomalies now: {_listing(items)}")
+    if failed:
+        lines.append(f"Could not fetch: {_listing([f'`{esc(name)}`' for name in failed])}")
+    if last_alert_run is None:
+        lines.append("Alert job: no run recorded yet")
+    else:
+        alerted = "anomaly" if alerted_24h == 1 else "anomalies"
+        lines.append(
+            f"Alert job: last run *{_ago(now, last_alert_run)}* | "
+            f"*{alerted_24h}* {alerted} alerted in the last 24 h"
+        )
+
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": title}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": summary}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}},
     ]
-    if failed:
-        shown = failed[:10]
-        extra = f" and {len(failed) - len(shown)} more" if len(failed) > len(shown) else ""
-        listing = ", ".join(f"`{esc(name)}`" for name in shown) + extra
-        blocks.append(
-            {"type": "section", "text": {"type": "mrkdwn", "text": f"Could not fetch: {listing}"}}
-        )
     blocks.append(
         {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Run at {_stamp(now)} UTC"}]}
     )

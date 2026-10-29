@@ -51,6 +51,19 @@ class StateTests(unittest.TestCase):
         self.assertTrue(reloaded.allow("old", "warning", NOW))  # forgotten
         self.assertFalse(reloaded.allow("new", "warning", NOW))
 
+    def test_last_saved_is_none_until_a_save(self):
+        s = self.store()
+        self.assertIsNone(s.last_saved())
+        s.save(NOW)
+        self.assertIsNotNone(s.last_saved())
+
+    def test_alerted_since_counts_recent_entries(self):
+        s = self.store()
+        s.record("a", "warning", NOW - timedelta(hours=30))
+        s.record("b", "warning", NOW - timedelta(hours=2))
+        s.record("c", "critical", NOW)
+        self.assertEqual(s.alerted_since(NOW - timedelta(hours=24)), 2)
+
     def test_corrupt_file_is_ignored(self):
         self.path.parent.mkdir(parents=True)
         self.path.write_text("{not json")
