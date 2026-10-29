@@ -136,5 +136,88 @@ def build_heartbeat_payload(
     }
 
 
+# Digest rows are routine.DigestRow; only their attributes are used here, so no import.
+_DIGEST_ICONS = {
+    "critical": ":red_circle:",
+    "warning": ":large_orange_circle:",
+    "failed": ":warning:",
+    "learning": ":hourglass_flowing_sand:",
+    "ok": ":large_green_circle:",
+}
+_DIGEST_COUNT_LABELS = (
+    ("critical", "critical"),
+    ("warning", "warning"),
+    ("failed", "fetch error"),
+    ("learning", "learning"),
+    ("ok", "ok"),
+)
+MAX_DIGEST_ROWS = 100
+_SECTION_LIMIT = 2900  # Slack rejects section text over 3000 characters
+
+
+def _digest_line(row) -> str:
+    icon = _DIGEST_ICONS[row.status]
+    head = f"{icon} *{esc(row.name)}* ({PROVIDER_LABELS.get(row.provider, row.provider)})"
+    if row.status == "failed":
+        return f"{head}: could not fetch"  # never the error text: it can name ARNs or IDs
+    unit = f" {esc(row.unit)}" if row.unit else ""
+    latest = "no data" if row.latest is None else f"{fmt(row.latest)}{unit}"
+    if row.status == "learning":
+        return f"{head}: {latest}, {row.points} of {row.needed} points before a baseline"
+    line = f"{head}: {latest} vs {row.center_label} {fmt(row.center)}{unit}"
+    if row.recent:
+        line += f" `{sparkline(list(row.recent))}`"
+    return line
+
+
+def _chunk(lines: list[str]) -> list[str]:
+    chunks, current = [], ""
+    for line in lines:
+        if current and len(current) + 1 + len(line) > _SECTION_LIMIT:
+            chunks.append(current)
+            current = line
+        else:
+            current = f"{current}\n{line}" if current else line
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def build_digest_payload(now, rows) -> dict:
+    """Routine per-metric health summary, worst first. Rows arrive already sorted."""
+    counts = {key: sum(1 for r in rows if r.status == key) for key, _ in _DIGEST_COUNT_LABELS}
+    if counts["critical"] or counts["warning"]:
+        status, color = "ALERTING", COLORS["critical" if counts["critical"] else "warning"]
+    elif counts["failed"]:
+        status, color = "DEGRADED", COLORS["warning"]
+    else:
+        status, color = "OK", COLORS["ok"]
+
+    parts = []
+    for key, label in _DIGEST_COUNT_LABELS:
+        n = counts[key]
+        if n:
+            plural = "s" if label == "fetch error" and n != 1 else ""
+            parts.append(f"{n} {label}{plural}")
+    metric_noun = "metric" if len(rows) == 1 else "metrics"
+    summary = f"*{len(rows)}* {metric_noun}" + "".join(f" | {part}" for part in parts)
+
+    shown = rows[:MAX_DIGEST_ROWS]
+    lines = [_digest_line(r) for r in shown]
+    if len(rows) > len(shown):
+        lines.append(f"_and {len(rows) - len(shown)} more_")
+
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"*Health digest: {status}*"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": summary}},
+    ]
+    blocks += [{"type": "section", "text": {"type": "mrkdwn", "text": c}} for c in _chunk(lines)]
+    blocks.append(
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Run at {_stamp(now)} UTC"}]}
+    )
+    fallback = f"Health digest {status}: {len(rows)} {metric_noun}" + "".join(f", {p}" for p in parts)
+    return {"text": fallback, "attachments": [{"color": color, "blocks": blocks}]}
+
+
 def _button(label: str, url: str) -> dict:
     return {"type": "button", "text": {"type": "plain_text", "text": label}, "url": url}

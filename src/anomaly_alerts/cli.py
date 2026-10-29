@@ -50,7 +50,7 @@ def _parse(argv) -> argparse.Namespace:
         "--kind",
         choices=routine.KINDS,
         default="heartbeat",
-        help="which routine report to post (routine command only)",
+        help="routine report to post: heartbeat (default) or digest (routine command only)",
     )
     parser.add_argument("--dry-run", action="store_true", help="print payloads, do not post or save state")
     parser.add_argument("--only", choices=["aws", "azure", "gcp"], help="run one cloud only")

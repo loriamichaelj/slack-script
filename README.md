@@ -13,7 +13,7 @@ anomaly-alerts --config config/config.yaml --dry-run
 
 Options: `--dry-run` prints payloads without posting, `--only aws|azure|gcp` runs one cloud, `--verbose` turns on debug logging. Exit codes: `0` ok, `1` a fetch or post failed, `2` bad config.
 
-Routine reports post on a schedule whether or not anything is wrong. `anomaly-alerts routine --config config/config.yaml` posts a heartbeat: how many metrics were fetched, how many anomalies exist right now, and which metrics could not be fetched. Give it its own Slack channel with `routine_webhook_env`; without one it uses the main webhook. Schedule it separately from the anomaly run, for example once a day.
+Routine reports post on a schedule whether or not anything is wrong. `anomaly-alerts routine --config config/config.yaml` posts a heartbeat: how many metrics were fetched, how many anomalies exist right now, and which metrics could not be fetched. `--kind digest` posts a health digest instead: one line per metric with its latest value against the baseline, worst first, including metrics still building history. Give it its own Slack channel with `routine_webhook_env`; without one it uses the main webhook. Schedule it separately from the anomaly run, for example once a day.
 
 Detectors: `mad` (default), `zscore`, `ewma`, `iqr`. Recommended actions live in `config/actions.yaml`.
 
@@ -71,10 +71,3 @@ Severity is `warning` when the score passes the detector threshold, and `critica
 | `actions.py` | Match an anomaly to recommended steps |
 | `slack/` | Block Kit builder and webhook client |
 | `pipeline.py` | Runs the stages above in order |
-
-### Design choices
-
-- **Stateless apart from the cooldown file.** A scheduler such as cron, EventBridge or Cloud Scheduler decides when to run. On a runner with no persistent disk, point `state.path` at a mounted volume, or the cooldown resets on every run.
-- **Standard-library statistics.** The detectors use only Python's `statistics` module, with no ML or forecasting.
-- **Credentials from each SDK's default chain.** The tool needs read-only metric access only, and a cloud can be left out of the config entirely. SDKs load lazily, so a missing one only matters if that cloud is configured.
-- **Exit codes.** `0` ok, `1` a fetch or Slack post failed, `2` bad config or setup, so a scheduler can alert on failures.
