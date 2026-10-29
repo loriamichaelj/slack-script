@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 
 SPIKE, DROP, BOTH = "spike", "drop", "both"
 WARNING, CRITICAL = "warning", "critical"
@@ -89,3 +89,27 @@ class Anomaly:
     def fingerprint(self) -> str:
         s = self.series
         return "|".join((s.provider, s.scope, s.resource, s.metric, self.direction))
+
+
+@dataclass(frozen=True)
+class CostSpec:
+    """One billing account, subscription or project to report spend for."""
+
+    name: str
+    provider: str
+    selector: dict  # cloud-specific keys, validated in config.py
+
+
+@dataclass(frozen=True)
+class DailyCost:
+    day: date
+    service: str
+    amount: float
+
+
+@dataclass
+class CostData:
+    provider: str
+    scope: str  # account, subscription or billing table, for display
+    currency: str
+    rows: list[DailyCost]  # any order; days with no spend may be missing

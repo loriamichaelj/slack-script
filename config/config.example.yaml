@@ -53,3 +53,22 @@ metrics:
     category: cpu
     direction: spike
     min_abs_change: 0.15           # GCP reports CPU as a 0 to 1 fraction
+
+# Optional: spend per account for `anomaly-alerts routine --kind cost`, run once a day.
+# Reports the day lag_days ago against the average of the baseline_days before it.
+cost:
+  lag_days: 1            # billing data arrives late; GCP's export can need 2
+  baseline_days: 7
+  alert_pct: 25          # flag a day this far above the average...
+  min_abs_change: 1      # ...and at least this much more, in the account's currency
+  top_services: 5
+  accounts:
+    - name: aws-main
+      provider: aws      # Cost Explorer; optional linked_account to filter one member account
+    - name: azure-prod
+      provider: azure
+      scope: /subscriptions/00000000-0000-0000-0000-000000000000
+    - name: gcp-dev
+      provider: gcp      # needs the Cloud Billing export to BigQuery turned on
+      billing_table: my-billing-project.billing.gcp_billing_export_v1_XXXXXX
+      project: slack-anomaly-dev
