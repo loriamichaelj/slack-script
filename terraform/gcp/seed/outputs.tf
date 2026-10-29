@@ -30,6 +30,11 @@ output "state_buckets" {
   value       = { for k, b in google_storage_bucket.state : k => b.name }
 }
 
+output "webhook_secrets" {
+  description = "Add a version to each with the Slack webhook URL (see README.md)."
+  value       = [for s in google_secret_manager_secret.webhook : s.secret_id]
+}
+
 output "billing_export_dataset" {
   description = "Pick this dataset when turning on the Cloud Billing export to BigQuery."
   value       = "${var.project_id}.${google_bigquery_dataset.billing_export.dataset_id}"

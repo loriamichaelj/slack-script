@@ -1,20 +1,22 @@
-# Slack webhooks. Terraform creates the secrets but never their values, so no URL
-# lands in state. Add a version by hand after the first apply (see README.md);
-# until then, executions fail to start.
-resource "google_secret_manager_secret" "webhook" {
-  for_each = toset(["slack-webhook", "slack-routine-webhook"])
+# The Slack webhook secrets are created by SEED, so tearing down DEV keeps them and
+# their values. DEV only lets the jobs read them.
+locals {
+  webhook_secrets = toset(["slack-webhook", "slack-routine-webhook"])
+}
 
-  secret_id = each.value
+# DEV created these secrets at first. Hand them to SEED without deleting them.
+removed {
+  from = google_secret_manager_secret.webhook
 
-  replication {
-    auto {}
+  lifecycle {
+    destroy = false
   }
 }
 
 resource "google_secret_manager_secret_iam_member" "runtime_reads_webhook" {
-  for_each = google_secret_manager_secret.webhook
+  for_each = local.webhook_secrets
 
-  secret_id = each.value.id
+  secret_id = "projects/${var.project_id}/secrets/${each.value}"
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${local.runtime_sa}"
 }

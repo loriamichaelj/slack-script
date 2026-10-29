@@ -7,6 +7,7 @@ Creates what the DEV environment depends on, in project `slack-anomaly-dev`:
 - service accounts: `seed-admin` (SEED), `dev-deployer` (DEV apply and CI destroy), `tf-planner` (CI plan, read-only), `anomaly-runtime` (the Cloud Run job's identity)
 - the Google APIs the project needs
 - the `billing_export` BigQuery dataset for the cost report, readable by `anomaly-runtime`
+- the `slack-webhook` and `slack-routine-webhook` secrets, without values (see below)
 
 Every resource that supports labels gets `app`, `env`, `managed_by` and `repo` through the provider's `default_labels`. Service accounts and the Workload Identity pool do not support labels.
 
@@ -59,6 +60,19 @@ Copy these outputs into GitHub as variables (none are secrets). The provider is 
 | `seed_admin_service_account` | `GCP_SERVICE_ACCOUNT` | SEED |
 | `dev_deployer_service_account` | `GCP_SERVICE_ACCOUNT` | DEV, CI |
 | `tf_planner_service_account` | `GCP_PLAN_SERVICE_ACCOUNT` | CI |
+
+## Slack webhooks
+
+The two secrets live here so a DEV teardown keeps them. Terraform never stores their values; add each once from your own terminal, never pasting the URL anywhere else:
+
+```bash
+read -rs URL   # paste the incoming webhook URL, press Enter
+printf %s "$URL" | gcloud secrets versions add slack-webhook --data-file=- --project slack-anomaly-dev
+printf %s "$URL" | gcloud secrets versions add slack-routine-webhook --data-file=- --project slack-anomaly-dev
+unset URL
+```
+
+Use the same URL for both to send everything to one channel. The DEV jobs cannot be created until both have a version.
 
 ## Billing export and org metrics
 
