@@ -18,6 +18,16 @@ resource "google_service_account" "dev_deployer" {
   depends_on = [google_project_service.apis]
 }
 
+# Used by the plan workflow (CI environment). Reads everything SEED and DEV manage,
+# changes nothing. Plans run without the state lock, so state is read-only too.
+resource "google_service_account" "tf_planner" {
+  account_id   = "tf-planner"
+  display_name = "Terraform plan (read-only)"
+  description  = "Runs terraform plan for pull requests. Read-only."
+
+  depends_on = [google_project_service.apis]
+}
+
 # Identity the Cloud Run job runs as. Created here so DEV only has to use it.
 resource "google_service_account" "runtime" {
   account_id   = "anomaly-runtime"
@@ -37,6 +47,19 @@ locals {
     "roles/storage.admin",
   ]
 
+  # Read-only roles covering what SEED and DEV manage.
+  tf_planner_roles = [
+    "roles/artifactregistry.reader",
+    "roles/bigquery.metadataViewer",
+    "roles/browser",
+    "roles/cloudscheduler.viewer",
+    "roles/iam.securityReviewer",
+    "roles/iam.workloadIdentityPoolViewer",
+    "roles/run.viewer",
+    "roles/secretmanager.viewer",
+    "roles/serviceusage.serviceUsageViewer",
+  ]
+
   dev_deployer_roles = [
     "roles/artifactregistry.admin",
     "roles/cloudscheduler.admin",
@@ -53,6 +76,14 @@ resource "google_project_iam_member" "seed_admin" {
   project = var.project_id
   role    = each.value
   member  = "serviceAccount:${google_service_account.seed_admin.email}"
+}
+
+resource "google_project_iam_member" "tf_planner" {
+  for_each = toset(local.tf_planner_roles)
+
+  project = var.project_id
+  role    = each.value
+  member  = "serviceAccount:${google_service_account.tf_planner.email}"
 }
 
 resource "google_project_iam_member" "dev_deployer" {

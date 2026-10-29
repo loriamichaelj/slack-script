@@ -1,0 +1,103 @@
+name: terraform apply
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "terraform/gcp/**"
+  workflow_dispatch:
+    inputs:
+      root:
+        description: Terraform directory under terraform/gcp to apply
+        type: choice
+        options: [seed]
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_IN_AUTOMATION: "true"
+  GCP_PROJECT: slack-anomaly-dev
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      roots: ${{ steps.pick.outputs.roots }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Apply only the directories this push changed, or the one picked by hand.
+      # terraform/gcp/org is never applied here: it is local-only.
+      - id: pick
+        env:
+          BEFORE: ${{ github.event.before }}
+          PICKED: ${{ inputs.root }}
+          PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+        run: |
+          # Nothing can be applied until the first, local SEED apply creates the
+          # workload identity provider and its repository variable is set.
+          if [ -z "$PROVIDER" ]; then
+            echo "::notice::Apply skipped: SEED is not bootstrapped yet (GCP_WORKLOAD_IDENTITY_PROVIDER is unset). See terraform/gcp/seed/README.md."
+            echo "roots=[]" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -n "$PICKED" ]; then
+            roots="[\"$PICKED\"]"
+          else
+            roots=$(git diff --name-only "$BEFORE" "$GITHUB_SHA" -- terraform/gcp \
+              | cut -d/ -f3 | sort -u | grep -E '^(seed|dev)$' \
+              | jq -R . | jq -sc .)
+          fi
+          echo "roots=$roots" >> "$GITHUB_OUTPUT"
+          echo "Applying: $roots"
+
+  apply:
+    needs: changes
+    if: needs.changes.outputs.roots != '[]'
+    runs-on: ubuntu-latest
+    # SEED and DEV only allow the dev branch; SEED also needs a reviewer.
+    environment: ${{ matrix.root == 'seed' && 'SEED' || 'DEV' }}
+    concurrency:
+      group: terraform-apply-${{ matrix.root }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        root: ${{ fromJSON(needs.changes.outputs.roots) }}
+    defaults:
+      run:
+        working-directory: terraform/gcp/${{ matrix.root }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.4
+          terraform_wrapper: false
+
+      - name: Init
+        run: terraform init -input=false -backend-config="bucket=${GCP_PROJECT}-${{ matrix.root }}-tfstate"
+
+      - name: Plan
+        run: |
+          terraform plan -input=false -no-color -out=tfplan
+          {
+            echo "### terraform plan: ${{ matrix.root }}"
+            echo '```'
+            terraform show -no-color tfplan | tail -c 60000
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Applies exactly the plan above.
+      - name: Apply
+        run: terraform apply -input=false -no-color tfplan

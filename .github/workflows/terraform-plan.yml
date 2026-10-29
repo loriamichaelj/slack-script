@@ -1,0 +1,83 @@
+name: terraform plan
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - "terraform/gcp/**"
+      - ".github/workflows/terraform-*.yml"
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_IN_AUTOMATION: "true"
+  GCP_PROJECT: slack-anomaly-dev
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    # CI requires a reviewer's approval before the job starts. It signs in as the
+    # read-only tf-planner account.
+    environment: CI
+    strategy:
+      fail-fast: false
+      matrix:
+        # terraform/gcp/org is applied locally by an org admin; add dev once it exists.
+        root: [seed]
+    defaults:
+      run:
+        working-directory: terraform/gcp/${{ matrix.root }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.4
+          terraform_wrapper: false
+
+      # These checks need no cloud access, so they run even before SEED exists.
+      - name: Format
+        run: terraform fmt -check -recursive
+
+      - name: Validate
+        run: |
+          terraform init -input=false -backend=false
+          terraform validate -no-color
+
+      # The plan needs the workload identity provider that the first, local SEED apply
+      # creates. Until that repository variable is set, skip it instead of failing.
+      - name: Check GCP access
+        id: gcp
+        env:
+          PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+        run: |
+          if [ -z "$PROVIDER" ]; then
+            echo "::notice::Plan skipped: SEED is not bootstrapped yet (GCP_WORKLOAD_IDENTITY_PROVIDER is unset). See terraform/gcp/seed/README.md."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.gcp.outputs.ready == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_PLAN_SERVICE_ACCOUNT }}
+
+      - name: Init
+        if: steps.gcp.outputs.ready == 'true'
+        run: terraform init -input=false -reconfigure -backend-config="bucket=${GCP_PROJECT}-${{ matrix.root }}-tfstate"
+
+      # The planner cannot write to the state bucket, so the plan takes no lock.
+      - name: Plan
+        if: steps.gcp.outputs.ready == 'true'
+        run: |
+          terraform plan -input=false -lock=false -no-color -out=tfplan
+          {
+            echo "### terraform plan: ${{ matrix.root }}"
+            echo '```'
+            terraform show -no-color tfplan | tail -c 60000
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -4,7 +4,7 @@ Creates what the DEV environment depends on, in project `slack-anomaly-dev`:
 
 - the Terraform state buckets for SEED and DEV
 - a Workload Identity pool and GitHub provider (keyless OIDC, no service account keys)
-- service accounts: `seed-admin` (SEED), `dev-deployer` (DEV apply and CI destroy), `anomaly-runtime` (the Cloud Run job's identity)
+- service accounts: `seed-admin` (SEED), `dev-deployer` (DEV apply and CI destroy), `tf-planner` (CI plan, read-only), `anomaly-runtime` (the Cloud Run job's identity)
 - the Google APIs the project needs
 - the `billing_export` BigQuery dataset for the cost report, readable by `anomaly-runtime`
 
@@ -22,6 +22,7 @@ repo:loriamichaelj@165821667/slack-script@1437191668:environment:<NAME>
 | --- | --- | --- |
 | `SEED` | `seed-admin` | applying this directory |
 | `DEV` | `dev-deployer` | applying `terraform/gcp/dev` |
+| `CI` | `tf-planner` | planning pull requests (read-only) |
 | `CI` | `dev-deployer` | destroying `terraform/gcp/dev` |
 
 The provider only accepts tokens from owner ID `165821667` and repo ID `1437191668`. Each environment's own protection rules (reviewer, `dev` branch only) decide whether a job can start.
@@ -50,13 +51,14 @@ Answer `yes` to the migration prompt, then delete the local `terraform.tfstate` 
 
 ## After the apply
 
-Copy these outputs into GitHub as environment variables (none are secrets):
+Copy these outputs into GitHub as variables (none are secrets). The provider is one repository variable; the workflows skip GCP steps until it is set. The service accounts are per environment:
 
 | Output | Variable | Environments |
 | --- | --- | --- |
-| `workload_identity_provider` | `GCP_WORKLOAD_IDENTITY_PROVIDER` | SEED, DEV, CI |
+| `workload_identity_provider` | `GCP_WORKLOAD_IDENTITY_PROVIDER` | repository variable (same for all) |
 | `seed_admin_service_account` | `GCP_SERVICE_ACCOUNT` | SEED |
 | `dev_deployer_service_account` | `GCP_SERVICE_ACCOUNT` | DEV, CI |
+| `tf_planner_service_account` | `GCP_PLAN_SERVICE_ACCOUNT` | CI |
 
 ## Billing export and org metrics
 
