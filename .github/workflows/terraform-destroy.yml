@@ -1,0 +1,68 @@
+name: terraform destroy
+
+# Manual only. Tears down a workload directory to stop its costs. SEED and the org
+# metrics scope are never destroyed here: SEED holds the state buckets and identities.
+on:
+  workflow_dispatch:
+    inputs:
+      root:
+        description: Terraform directory under terraform/gcp to destroy
+        type: choice
+        options: [dev]
+      confirm:
+        description: Type the directory name again to confirm
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_IN_AUTOMATION: "true"
+  GCP_PROJECT: slack-anomaly-dev
+
+concurrency:
+  # Shares the apply lock, so a destroy never runs alongside an apply of the same directory.
+  group: terraform-apply-${{ inputs.root }}
+  cancel-in-progress: false
+
+jobs:
+  destroy:
+    # Only from the dev branch, and only when the confirmation matches.
+    if: github.ref == 'refs/heads/dev' && inputs.confirm == inputs.root
+    runs-on: ubuntu-latest
+    # CI requires a reviewer's approval before the job starts. It signs in as dev-deployer.
+    environment: CI
+    defaults:
+      run:
+        working-directory: terraform/gcp/${{ inputs.root }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.4
+          terraform_wrapper: false
+
+      - name: Init
+        run: terraform init -input=false -backend-config="bucket=${GCP_PROJECT}-${{ inputs.root }}-tfstate"
+
+      - name: Plan the destroy
+        run: |
+          terraform plan -destroy -input=false -no-color -out=destroy.tfplan
+          {
+            echo "### terraform destroy: ${{ inputs.root }}"
+            echo '```'
+            terraform show -no-color destroy.tfplan | tail -c 60000
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Destroys exactly the plan above.
+      - name: Destroy
+        run: terraform apply -input=false -no-color destroy.tfplan
