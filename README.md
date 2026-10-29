@@ -71,10 +71,3 @@ Severity is `warning` when the score passes the detector threshold, and `critica
 | `actions.py` | Match an anomaly to recommended steps |
 | `slack/` | Block Kit builder and webhook client |
 | `pipeline.py` | Runs the stages above in order |
-
-### Design choices
-
-- **Stateless apart from the cooldown file.** A scheduler such as cron, EventBridge or Cloud Scheduler decides when to run. On a runner with no persistent disk, point `state.path` at a mounted volume, or the cooldown resets on every run.
-- **Standard-library statistics.** The detectors use only Python's `statistics` module, with no ML or forecasting.
-- **Credentials from each SDK's default chain.** The tool needs read-only metric access only, and a cloud can be left out of the config entirely. SDKs load lazily, so a missing one only matters if that cloud is configured.
-- **Exit codes.** `0` ok, `1` a fetch or Slack post failed, `2` bad config or setup, so a scheduler can alert on failures.
