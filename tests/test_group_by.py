@@ -87,9 +87,9 @@ class GcpGroupByTests(unittest.TestCase):
         self.assertEqual([s.group for s in result], ["proj-a, global", "proj-a, audited_resource"])
         self.assertEqual({s.scope for s in result}, {"proj-a"})
 
-    def test_no_series_is_an_empty_list(self):
-        result, _ = self.fetch([])
-        self.assertEqual(result, [])
+    def test_no_matching_series_is_one_empty_ungrouped_series(self):
+        [series], _ = self.fetch([])
+        self.assertEqual((series.group, series.scope, series.points), (None, "scoping", []))
 
     def test_metric_labels_and_missing_values(self):
         fields = ["resource.labels.project_id", "metric.label.severity"]

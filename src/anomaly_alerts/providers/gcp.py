@@ -87,13 +87,20 @@ class GcpProvider:
         series_list = list(self._client.list_time_series(request=request))
 
         if group_by:
-            return self._grouped(spec, series_list, group_by, aggregation["cross_series_reducer"])
+            # Nothing matched (say, no 5xx errors anywhere): report the metric as one
+            # empty series rather than dropping it from the run and the digest.
+            grouped = self._grouped(spec, series_list, group_by, aggregation["cross_series_reducer"])
+            return grouped or [self._whole(spec, [])]
         if len(series_list) > 1:
             raise RuntimeError(
                 f"{len(series_list)} time series matched; narrow `filter`, set `reducer` "
                 "(for example REDUCE_SUM) so exactly one series remains, or set `group_by`"
             )
-        points = _points(series_list[0], spec.period_seconds) if series_list else []
+        return self._whole(spec, _points(series_list[0], spec.period_seconds) if series_list else [])
+
+    def _whole(self, spec: MetricSpec, points: list[Point]) -> Series:
+        sel = spec.selector
+        project = sel["project"]
         return Series(
             provider="gcp",
             resource=sel.get("filter") or sel["metric_type"],
