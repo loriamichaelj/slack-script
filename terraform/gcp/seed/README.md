@@ -51,11 +51,11 @@ Answer `yes` to the migration prompt, then delete the local `terraform.tfstate` 
 
 ## After the apply
 
-Copy these outputs into GitHub as environment variables (none are secrets):
+Copy these outputs into GitHub as variables (none are secrets). The provider is one repository variable; the workflows skip GCP steps until it is set. The service accounts are per environment:
 
 | Output | Variable | Environments |
 | --- | --- | --- |
-| `workload_identity_provider` | `GCP_WORKLOAD_IDENTITY_PROVIDER` | SEED, DEV, CI |
+| `workload_identity_provider` | `GCP_WORKLOAD_IDENTITY_PROVIDER` | repository variable (same for all) |
 | `seed_admin_service_account` | `GCP_SERVICE_ACCOUNT` | SEED |
 | `dev_deployer_service_account` | `GCP_SERVICE_ACCOUNT` | DEV, CI |
 | `tf_planner_service_account` | `GCP_PLAN_SERVICE_ACCOUNT` | CI |
