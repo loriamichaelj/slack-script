@@ -6,6 +6,7 @@ Creates what the DEV environment depends on, in project `slack-anomaly-dev`:
 - a Workload Identity pool and GitHub provider (keyless OIDC, no service account keys)
 - service accounts: `seed-admin` (SEED), `dev-deployer` (DEV apply and CI destroy), `anomaly-runtime` (the Cloud Run job's identity)
 - the Google APIs the project needs
+- the `billing_export` BigQuery dataset for the cost report, readable by `anomaly-runtime`
 
 Every resource that supports labels gets `app`, `env`, `managed_by` and `repo` through the provider's `default_labels`. Service accounts and the Workload Identity pool do not support labels.
 
@@ -57,6 +58,13 @@ Copy these outputs into GitHub as environment variables (none are secrets):
 | `seed_admin_service_account` | `GCP_SERVICE_ACCOUNT` | SEED |
 | `dev_deployer_service_account` | `GCP_SERVICE_ACCOUNT` | DEV, CI |
 
+## Billing export and org metrics
+
+Two one-time steps after the first apply:
+
+1. **Billing export.** In the console, open Billing → Billing export → BigQuery export, edit **Standard usage cost**, and choose project `slack-anomaly-dev`, dataset `billing_export`. There is no API for this. Data starts arriving within about a day; the table is named `gcp_billing_export_v1_<billing account ID>`.
+2. **Org metrics.** Apply [`../org`](../org/README.md) so the job can read metrics from every project in the org.
+
 ## Protection against deletion
 
-Both state buckets have `prevent_destroy`, versioning, and public access prevention. To tear everything down locally, remove `prevent_destroy` and set `force_destroy = true` on the buckets first.
+Both state buckets and the billing dataset have `prevent_destroy`. The buckets also have versioning and public access prevention. To tear everything down locally, remove `prevent_destroy` and set `force_destroy = true` on the buckets first.
