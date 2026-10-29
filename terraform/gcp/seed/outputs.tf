@@ -15,6 +15,11 @@ output "dev_deployer_service_account" {
   value       = google_service_account.dev_deployer.email
 }
 
+output "tf_planner_service_account" {
+  description = "CI environment variable GCP_PLAN_SERVICE_ACCOUNT."
+  value       = google_service_account.tf_planner.email
+}
+
 output "runtime_service_account" {
   description = "Identity for the Cloud Run job, used by terraform/gcp/dev."
   value       = google_service_account.runtime.email

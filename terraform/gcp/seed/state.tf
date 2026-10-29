@@ -42,3 +42,15 @@ resource "google_storage_bucket" "state" {
 
   depends_on = [google_project_service.apis]
 }
+
+# The planner reads state (bucket metadata and objects) but cannot write or lock it.
+resource "google_storage_bucket_iam_member" "planner_reads_state" {
+  for_each = {
+    for pair in setproduct(keys(local.state_buckets), ["roles/storage.legacyBucketReader", "roles/storage.objectViewer"]) :
+    "${pair[0]}-${pair[1]}" => { bucket = pair[0], role = pair[1] }
+  }
+
+  bucket = google_storage_bucket.state[each.value.bucket].name
+  role   = each.value.role
+  member = "serviceAccount:${google_service_account.tf_planner.email}"
+}

@@ -46,6 +46,14 @@ resource "google_service_account_iam_member" "seed_admin_wif" {
   member             = "principal://iam.googleapis.com/${local.pool_name}/subject/${local.github_subjects.seed}"
 }
 
+# CI environment (plan) -> tf-planner. CI needs a reviewer and allows any branch,
+# so pull requests can plan.
+resource "google_service_account_iam_member" "tf_planner_wif" {
+  service_account_id = google_service_account.tf_planner.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "principal://iam.googleapis.com/${local.pool_name}/subject/${local.github_subjects.ci}"
+}
+
 # DEV environment (apply) and CI environment (destroy) -> dev-deployer
 resource "google_service_account_iam_member" "dev_deployer_wif" {
   for_each = {
