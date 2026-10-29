@@ -16,6 +16,12 @@ variable "billing_dataset" {
   default     = "tensile-runway-511902-q9.shiptrack_billing_export"
 }
 
+variable "log_retention_days" {
+  description = "Days the org log bucket keeps entries."
+  type        = number
+  default     = 30
+}
+
 variable "exclude_projects" {
   description = "Project IDs to leave out of the metrics scope."
   type        = list(string)

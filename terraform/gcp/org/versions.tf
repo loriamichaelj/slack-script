@@ -4,7 +4,7 @@ terraform {
   required_providers {
     google = {
       source  = "hashicorp/google"
-      version = "~> 6.0"
+      version = "~> 7.0" # trace scopes need 7.x; seed and dev stay on 6.x
     }
   }
 
