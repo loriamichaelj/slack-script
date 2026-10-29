@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import tempfile
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .models import SEVERITY_RANK
@@ -49,6 +49,17 @@ class StateStore:
     def record(self, fingerprint: str, severity: str, now: datetime) -> None:
         self._entries[fingerprint] = {"at": now.isoformat(), "severity": severity}
 
+    def last_saved(self) -> datetime | None:
+        """When an alert run last saved this file, or None if none has. Every run saves it."""
+        try:
+            return datetime.fromtimestamp(self.path.stat().st_mtime, UTC)
+        except OSError:
+            return None
+
+    def alerted_since(self, since: datetime) -> int:
+        """Anomalies alerted at or after `since`. Only the latest alert per anomaly is kept."""
+        return sum(1 for e in self._entries.values() if (at := _at(e)) and at >= since)
+
     def save(self, now: datetime) -> None:
         self._entries = {fp: e for fp, e in self._entries.items() if _recent(e, now)}
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -62,8 +73,13 @@ class StateStore:
             raise
 
 
-def _recent(entry: dict, now: datetime) -> bool:
+def _at(entry: dict) -> datetime | None:
     try:
-        return now - datetime.fromisoformat(entry["at"]) <= _KEEP
-    except (KeyError, ValueError):
-        return False
+        return datetime.fromisoformat(entry["at"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _recent(entry: dict, now: datetime) -> bool:
+    at = _at(entry)
+    return at is not None and now - at <= _KEEP

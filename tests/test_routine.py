@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -29,8 +30,8 @@ class FakeProvider:
         return result
 
 
-def make_config(specs, **slack):
-    return Config(SlackConfig("X", 3600, 10, **slack), Path("unused.json"), None, specs)
+def make_config(specs, state_path=Path("unused.json"), **slack):
+    return Config(SlackConfig("X", 3600, 10, **slack), state_path, None, specs)
 
 
 def all_text(payload):
@@ -41,10 +42,11 @@ class HeartbeatTests(unittest.TestCase):
     def setUp(self):
         self.posted = []
 
-    def heartbeat(self, by_name, specs, post=None, **kwargs):
+    def heartbeat(self, by_name, specs, post=None, state_path=Path("unused.json"), **kwargs):
+        fake = FakeProvider(by_name)
         return routine.run_heartbeat(
-            make_config(specs),
-            ProviderPool({"aws": FakeProvider(by_name)}),
+            make_config(specs, state_path),
+            ProviderPool({"aws": fake, "azure": fake}),
             post or self.posted.append,
             NOW,
             **kwargs,
@@ -97,7 +99,7 @@ class HeartbeatTests(unittest.TestCase):
 
     def test_long_failure_list_is_truncated(self):
         payload = blocks.build_heartbeat_payload(
-            NOW, checked=0, total=15, anomalies=0, failed=[f"m{i}" for i in range(15)]
+            NOW, checked=0, total=15, flagged=[], failed=[f"m{i}" for i in range(15)]
         )
         text = all_text(payload)
         self.assertIn("and 5 more", text)
@@ -105,9 +107,62 @@ class HeartbeatTests(unittest.TestCase):
 
     def test_metric_names_are_escaped(self):
         payload = blocks.build_heartbeat_payload(
-            NOW, checked=0, total=1, anomalies=0, failed=["a<b>&c"]
+            NOW, checked=0, total=1, flagged=[], failed=["a<b>&c"]
         )
         self.assertIn("a&lt;b&gt;&amp;c", all_text(payload))
+
+    def test_lists_current_anomalies_by_name(self):
+        specs = [make_spec(name="mem"), make_spec(name="cpu")]
+        self.heartbeat({"mem": make_series(SPIKE_72), "cpu": make_series(QUIET_72)}, specs)
+        text = all_text(self.posted[0])
+        self.assertIn("Anomalies now:", text)
+        self.assertIn("`mem` (AWS)", text)
+        self.assertNotIn("`cpu`", text)
+
+    def test_flagged_order_and_icons(self):
+        payload = blocks.build_heartbeat_payload(
+            NOW, checked=2, total=2, failed=[],
+            flagged=[("disk", "gcp", "critical"), ("mem", "aws", "warning")],
+        )
+        text = all_text(payload)
+        self.assertIn(":red_circle: `disk` (GCP), :large_orange_circle: `mem` (AWS)", text)
+        self.assertIn("*2* anomalies right now", text)
+
+    def test_breaks_counts_down_by_cloud(self):
+        specs = [make_spec(name="cpu"), make_spec(name="vm", provider="azure"), make_spec(name="db")]
+        data = {"cpu": make_series(QUIET_72), "vm": make_series(QUIET_72), "db": RuntimeError("x")}
+        self.heartbeat(data, specs)
+        self.assertIn("By cloud: AWS 1/2 | Azure 1/1", all_text(self.posted[0]))
+
+    def test_reports_the_alert_job_from_its_state_file(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        path = Path(folder.name) / "alerts.json"
+        path.write_text(json.dumps({
+            "fresh": {"at": (NOW - timedelta(hours=2)).isoformat(), "severity": "warning"},
+            "old": {"at": (NOW - timedelta(hours=30)).isoformat(), "severity": "critical"},
+        }))
+        saved = (NOW - timedelta(minutes=4)).timestamp()
+        os.utime(path, (saved, saved))
+
+        self.heartbeat({"cpu": make_series(QUIET_72)}, [make_spec()], state_path=path)
+        self.assertIn(
+            "Alert job: last run *4 min ago* | *1* anomaly alerted in the last 24 h",
+            all_text(self.posted[0]),
+        )
+
+    def test_says_when_the_alert_job_never_ran(self):
+        self.heartbeat({"cpu": make_series(QUIET_72)}, [make_spec()])
+        self.assertIn("Alert job: no run recorded yet", all_text(self.posted[0]))
+
+    def test_alert_job_age_wording(self):
+        cases = {timedelta(seconds=30): "under a minute ago", timedelta(hours=5): "5 h ago",
+                 timedelta(days=3): "3 days ago"}
+        for age, wording in cases.items():
+            payload = blocks.build_heartbeat_payload(
+                NOW, checked=1, total=1, flagged=[], failed=[], last_alert_run=NOW - age
+            )
+            self.assertIn(wording, all_text(payload))
 
     def test_unknown_kind_is_rejected(self):
         with self.assertRaises(ValueError):

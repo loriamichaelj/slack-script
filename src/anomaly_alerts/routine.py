@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Callable
 
 from . import pipeline
@@ -12,10 +12,11 @@ from .config import Config
 from .cost import CostProviderPool
 from .cost import report as cost_report
 from .detectors import DETECTORS
-from .models import series_name
+from .models import SEVERITY_RANK, series_name
 from .providers import ProviderPool
 from .slack import blocks
 from .slack.client import SlackError
+from .state import StateStore
 
 log = logging.getLogger(__name__)
 
@@ -52,18 +53,39 @@ def run_heartbeat(
     now = now or datetime.now(UTC)
     outcomes = pipeline.scan(config, pool, now, only)
     failed = [o.spec.name for o in outcomes if o.series is None]
+    flagged = sorted(
+        (
+            (series_name(o.spec, o.series), o.spec.provider, o.anomaly.severity)
+            for o in outcomes
+            if o.anomaly
+        ),
+        key=lambda f: (-SEVERITY_RANK[f[2]], f[0]),
+    )
+    clouds: dict[str, list[int]] = {}
+    for o in outcomes:
+        counts = clouds.setdefault(o.spec.provider, [0, 0])
+        counts[0] += o.series is not None
+        counts[1] += 1
+
+    # The alert job saves the state file on every run, so it shows that job is alive too.
+    state = StateStore(config.state_path, config.slack.cooldown_seconds)
+    state.load()
+
     result = RoutineResult(
         checked=len(outcomes) - len(failed),
         total=len(outcomes),
-        anomalies=sum(1 for o in outcomes if o.anomaly),
+        anomalies=len(flagged),
         fetch_errors=len(failed),
     )
     payload = blocks.build_heartbeat_payload(
         now,
         checked=result.checked,
         total=result.total,
-        anomalies=result.anomalies,
+        flagged=flagged,
         failed=failed,
+        clouds={p: tuple(c) for p, c in sorted(clouds.items())},
+        last_alert_run=state.last_saved(),
+        alerted_24h=state.alerted_since(now - timedelta(hours=24)),
     )
     _post(post, payload, result, "heartbeat")
     return result
