@@ -24,8 +24,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # terraform/gcp/org is applied locally by an org admin; add dev once it exists.
-        root: [seed]
+        # terraform/gcp/org is applied locally by an org admin.
+        root: [seed, dev]
     defaults:
       run:
         working-directory: terraform/gcp/${{ matrix.root }}

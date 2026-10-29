@@ -1,0 +1,97 @@
+name: deploy dev
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "src/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "pyproject.toml"
+      - "config/actions.yaml"
+      - ".github/workflows/deploy-dev.yml"
+  # After terraform apply, so freshly created jobs get the real image.
+  workflow_run:
+    workflows: ["terraform apply"]
+    types: [completed]
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+env:
+  GCP_PROJECT: slack-anomaly-dev
+  REGION: us-central1
+  JOBS: anomaly-run routine-heartbeat routine-digest routine-cost
+
+jobs:
+  deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    # DEV only allows the dev branch. It signs in as dev-deployer.
+    environment: DEV
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check GCP access
+        id: gcp
+        env:
+          PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+        run: |
+          if [ -z "$PROVIDER" ]; then
+            echo "::notice::Deploy skipped: SEED is not bootstrapped yet (GCP_WORKLOAD_IDENTITY_PROVIDER is unset)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.gcp.outputs.ready == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - if: steps.gcp.outputs.ready == 'true'
+        uses: google-github-actions/setup-gcloud@v2
+
+      # The jobs and the image repository come from terraform/gcp/dev.
+      - name: Check DEV exists
+        id: dev
+        if: steps.gcp.outputs.ready == 'true'
+        run: |
+          if gcloud run jobs describe anomaly-run --region "$REGION" --project "$GCP_PROJECT" >/dev/null 2>&1; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Deploy skipped: the DEV jobs do not exist yet. Apply terraform/gcp/dev first."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push
+        id: image
+        if: steps.dev.outputs.ready == 'true'
+        run: |
+          image="${REGION}-docker.pkg.dev/${GCP_PROJECT}/anomaly-alerts/anomaly-alerts:${GITHUB_SHA}"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          if gcloud artifacts docker images describe "$image" >/dev/null 2>&1; then
+            echo "$image already exists"
+            exit 0
+          fi
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          docker build -t "$image" .
+          docker push "$image"
+
+      - name: Point the jobs at the image
+        if: steps.dev.outputs.ready == 'true'
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: |
+          for job in $JOBS; do
+            gcloud run jobs update "$job" --image "$IMAGE" --region "$REGION" --project "$GCP_PROJECT" --quiet
+          done
+          echo "Deployed \`$IMAGE\` to: $JOBS" >> "$GITHUB_STEP_SUMMARY"

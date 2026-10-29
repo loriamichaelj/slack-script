@@ -1,0 +1,15 @@
+# Only what the image needs; never local secrets or state.
+.git
+.github
+.env
+.env.*
+.state
+.venv
+venv
+docs
+examples
+terraform
+tests
+**/__pycache__
+*.egg-info
+config/config.yaml
