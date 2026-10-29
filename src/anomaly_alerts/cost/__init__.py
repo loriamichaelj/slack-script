@@ -10,6 +10,7 @@ from .base import CostProvider
 _PROVIDERS: dict[str, tuple[str, str]] = {
     "aws": ("anomaly_alerts.cost.aws", "AwsCostProvider"),
     "azure": ("anomaly_alerts.cost.azure", "AzureCostProvider"),
+    "gcp": ("anomaly_alerts.cost.gcp", "GcpCostProvider"),
 }
 
 

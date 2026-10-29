@@ -20,7 +20,7 @@ Remove `--dry-run` to post to Slack.
 | `anomaly-alerts --config FILE` | Alert on anomalies |
 | `anomaly-alerts routine --config FILE` | Post a heartbeat (see [Routine reports](#routine-reports)) |
 | `... routine --kind digest` | Post a health digest of every metric |
-| `... routine --kind cost` | Post yesterday's spend per account (AWS and Azure now; GCP coming) |
+| `... routine --kind cost` | Post yesterday's spend per account |
 
 Options: `--dry-run` prints instead of posting, `--only aws|azure|gcp` runs one cloud, `--verbose` adds debug logs.
 
@@ -36,7 +36,7 @@ Exit codes: `0` ok, `1` a fetch or post failed, `2` bad config.
 6. Add recommended next steps from `config/actions.yaml`.
 7. Post to Slack, most severe first, up to a limit per run.
 
-Credentials come from each cloud SDK's usual login, and read-only access is enough. The cost report also needs billing read access: `ce:GetCostAndUsage` on AWS, Cost Management Reader on Azure.
+Credentials come from each cloud SDK's usual login, and read-only access is enough. The cost report also needs billing read access: `ce:GetCostAndUsage` on AWS, Cost Management Reader on Azure, and on GCP BigQuery Data Viewer on the billing export dataset plus BigQuery Job User.
 
 ## Routine reports
 
@@ -44,7 +44,7 @@ Alerts only post when something is wrong, so a quiet channel could mean healthy 
 
 - **Heartbeat** (`routine`): a short "still alive" message with how many metrics were checked, how many anomalies there are right now, and which metrics could not be fetched. Run it every few hours.
 - **Digest** (`routine --kind digest`): one line per metric, problems first, showing its latest value against its normal level. New metrics show how much history they still need. Run it once a day.
-- **Cost** (`routine --kind cost`): yesterday's spend per account against its 7-day average, plus month to date and the top services. A day 25% or more above the average is flagged. List the accounts in the `cost` section of the config. Run it once a day.
+- **Cost** (`routine --kind cost`): yesterday's spend per account against its 7-day average, plus month to date and the top services. A day 25% or more above the average is flagged. List the accounts in the `cost` section of the config. On GCP, turn on the Cloud Billing export to BigQuery first; it takes about a day to fill. Run it once a day.
 
 Set `slack.routine_webhook_env` to send these to their own channel. Failed metrics or accounts are named, but error details are left out because they can contain account IDs.
 

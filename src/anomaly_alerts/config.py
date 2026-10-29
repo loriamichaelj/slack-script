@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 import yaml
 
+from .cost.gcp import TABLE_PATTERN as _BILLING_TABLE
 from .cost.report import CostSettings
 from .detectors import DETECTORS
 from .models import BOTH, DROP, SPIKE, CostSpec, MetricSpec
@@ -198,6 +199,9 @@ def _build_cost(raw) -> CostConfig:
                 f"{label}: provider must be one of {sorted(_COST_SELECTORS)}, got {provider!r}"
             )
         selector = _selector(entry, {"name", "provider"}, _COST_SELECTORS, provider, label)
+        table = selector.get("billing_table")
+        if table is not None and not _BILLING_TABLE.match(str(table)):
+            raise ConfigError(f"{label}: billing_table must look like project.dataset.table, got {table!r}")
         accounts.append(CostSpec(name=name, provider=provider, selector=selector))
     names = [a.name for a in accounts]
     dupes = sorted({n for n in names if names.count(n) > 1})
