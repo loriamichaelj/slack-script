@@ -26,6 +26,72 @@ Options: `--dry-run` prints instead of posting, `--only aws|azure|gcp` runs one 
 
 Exit codes: `0` ok, `1` a fetch or post failed, `2` bad config.
 
+## Architecture
+
+Each run is one short process. Alerts and routine reports share the same scan, then go their own way.
+
+```mermaid
+%%{init: {"flowchart": {"padding": 24, "wrappingWidth": 400}}}%%
+flowchart LR
+  trigger["Schedule<br/>cron, EventBridge,<br/>Cloud Scheduler"] --> cli["anomaly-alerts CLI"]
+  config[("config.yaml<br/>actions.yaml")] --> cli
+  cli -->|alerts| run["pipeline.run"]
+  cli -->|routine| routine["routine<br/>heartbeat, digest, cost"]
+
+  run --> scan["pipeline.scan<br/>fetch and clean<br/>each metric"]
+  routine -->|heartbeat, digest| scan
+  scan --> providers["Metric providers<br/>CloudWatch<br/>Azure Monitor<br/>Cloud Monitoring"]
+  scan --> detectors["Detectors and guards<br/>mad, zscore,<br/>ewma, iqr"]
+  routine -->|cost| cost["Cost adapters<br/>Cost Explorer<br/>Cost Management<br/>BigQuery billing export"]
+
+  run <-->|cooldown| state[("State file<br/>.state/alerts.json")]
+  run --> actions["Next steps<br/>from actions.yaml"]
+  run --> slack["Slack<br/>alerts webhook"]
+  routine --> routineSlack["Slack<br/>routine webhook,<br/>or the alerts one"]
+```
+
+This repo's own deployment, on GCP. Each box is one Terraform root under `terraform/gcp`.
+
+```mermaid
+%%{init: {"flowchart": {"padding": 24, "wrappingWidth": 400}}}%%
+flowchart LR
+  gh["GitHub Actions<br/>terraform plan,<br/>apply, destroy<br/>deploy dev"]
+
+  subgraph project ["GCP project slack-anomaly-dev"]
+    subgraph seed ["seed"]
+      wif["Workload Identity<br/>GitHub OIDC"]
+      sa["Service accounts"]
+      tfstate[("Terraform state buckets")]
+      secrets["Secret Manager<br/>Slack webhooks"]
+    end
+    subgraph dev ["dev"]
+      sched["Cloud Scheduler"]
+      jobs["Cloud Run jobs<br/>anomaly-run<br/>routine-heartbeat<br/>routine-digest<br/>routine-cost"]
+      registry["Artifact Registry"]
+      bucket[("App bucket<br/>config.yaml,<br/>cooldown state")]
+    end
+    subgraph org ["org"]
+      scope["Metrics scope"]
+      logs["Org logs and trace scope"]
+    end
+  end
+
+  projects["Every project in the org"]
+  billing[("Billing export<br/>BigQuery in<br/>another project")]
+  slack["Slack"]
+
+  gh -->|OIDC token| wif --> sa
+  gh -->|state| tfstate
+  gh -->|push image| registry --> jobs
+  sched -->|starts| jobs
+  secrets --> jobs
+  bucket <--> jobs
+  projects -->|metrics| scope --> jobs
+  projects -->|logs, traces| logs
+  billing -->|cost report| jobs
+  jobs -->|webhooks| slack
+```
+
 ## How a run works
 
 1. Read the config. The Slack webhook URL comes from an environment variable, never the file.
