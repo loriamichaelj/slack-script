@@ -63,6 +63,20 @@ data "aws_iam_policy_document" "runtime" {
     resources = ["*"]
   }
 
+  # The app bucket (config, cooldown state) is created by DEV; this role only reads the
+  # config and reads and writes the state in it.
+  statement {
+    sid       = "AppBucketObjects"
+    actions   = ["s3:GetObject", "s3:PutObject"]
+    resources = ["arn:aws:s3:::${var.name_prefix}-anomaly-app/*"]
+  }
+
+  statement {
+    sid       = "AppBucketList"
+    actions   = ["s3:ListBucket"]
+    resources = ["arn:aws:s3:::${var.name_prefix}-anomaly-app"]
+  }
+
   statement {
     sid       = "ReadWebhooks"
     actions   = ["secretsmanager:GetSecretValue"]
@@ -137,10 +151,14 @@ data "aws_iam_policy_document" "deployer" {
     ]
   }
 
+  # The Lambda runs as the runtime role, and EventBridge Scheduler starts it as the scheduler role.
   statement {
-    sid       = "PassRuntimeRole"
-    actions   = ["iam:PassRole"]
-    resources = [aws_iam_role.runtime.arn]
+    sid     = "PassRoles"
+    actions = ["iam:PassRole"]
+    resources = [
+      aws_iam_role.runtime.arn,
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/slack-anomaly-scheduler",
+    ]
   }
 
   statement {
