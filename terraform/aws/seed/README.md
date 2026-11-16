@@ -5,6 +5,7 @@ Creates what the DEV environment depends on, in account `370767313925` (us-east-
 - the Terraform state buckets for SEED and DEV (versioned, encrypted, TLS-only)
 - a GitHub OIDC provider (keyless, no access keys)
 - roles: `seed-admin` (SEED), `dev-deployer` (DEV apply and CI destroy), `tf-planner` (CI plan, read-only), `anomaly-runtime` (the Lambda functions' identity)
+- the `anomaly-alerts` ECR repository for the Lambda container image, with a lifecycle rule that keeps the last 5 images
 - the `slack-webhook` and `slack-routine-webhook` secrets, without values (see below)
 
 Every resource that supports tags gets `project`, `app`, `env`, `managed_by` and `repo` through the provider's `default_tags`.
@@ -67,4 +68,4 @@ aws secretsmanager put-secret-value --secret-id slack-routine-webhook --secret-s
 
 ## Cost
 
-State buckets are pennies a month. Each secret costs $0.40 a month. The OIDC provider and roles are free.
+State buckets are pennies a month. The ECR repository costs a few cents for the images it keeps. Each secret costs $0.40 a month. The OIDC provider and roles are free.

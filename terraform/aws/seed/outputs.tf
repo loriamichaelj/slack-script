@@ -29,3 +29,8 @@ output "state_buckets" {
 output "webhook_secret_arns" {
   value = { for k, s in aws_secretsmanager_secret.webhook : k => s.arn }
 }
+
+output "ecr_repository_url" {
+  description = "Where deploy-aws-dev pushes the Lambda image."
+  value       = aws_ecr_repository.app.repository_url
+}
