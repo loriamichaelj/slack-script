@@ -1,6 +1,7 @@
 locals {
   tags = merge({
-    app        = "slack-anomaly"
+    project    = "anomaly-alerts"
+    app        = "anomaly-alerts"
     env        = "seed"
     managed_by = "terraform"
     repo       = var.github_repo
