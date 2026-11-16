@@ -11,6 +11,11 @@
 FROM python:3.12-slim AS cli
 
 ARG EXTRAS=all
+
+# Apply the OS security fixes released since the base image was built, so the image does not
+# carry known vulnerabilities that a fix already exists for.
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src ./src
@@ -27,6 +32,13 @@ ENTRYPOINT ["anomaly-alerts"]
 FROM public.ecr.aws/lambda/python:3.12 AS lambda
 
 ARG EXTRAS=aws
+
+# Same as above, for Amazon Linux. Its package repositories are pinned to the release the base
+# image was built from, so the release is set to latest for this one update to see the fixes.
+RUN mkdir -p /etc/dnf/vars && echo latest > /etc/dnf/vars/releasever \
+    && microdnf -y update && microdnf clean all \
+    && rm -f /etc/dnf/vars/releasever
+
 COPY pyproject.toml README.md ${LAMBDA_TASK_ROOT}/
 COPY src ${LAMBDA_TASK_ROOT}/src
 RUN pip install --no-cache-dir "${LAMBDA_TASK_ROOT}[${EXTRAS}]" && rm -rf "${LAMBDA_TASK_ROOT}/src" "${LAMBDA_TASK_ROOT}/pyproject.toml" "${LAMBDA_TASK_ROOT}/README.md"

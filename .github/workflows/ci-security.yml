@@ -52,3 +52,34 @@ jobs:
           framework: terraform
           quiet: true
           soft_fail: false
+
+  # The image is what ships, so it is scanned as built, for each cloud's variant. Only
+  # vulnerabilities that already have a fix count, because nothing can be done about the rest.
+  # The Lambda base image carries AWS's local test emulator, which Lambda never runs, so that
+  # one binary is skipped: its Go dependencies are not ours to patch.
+  images:
+    name: scan image (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: cli-gcp, target: cli, extras: gcp }
+          - { name: cli-azure, target: cli, extras: azure }
+          - { name: lambda-aws, target: lambda, extras: aws }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build the image
+        run: docker build --target "${{ matrix.target }}" --build-arg "EXTRAS=${{ matrix.extras }}" --provenance=false --sbom=false -t "scan:${{ matrix.name }}" .
+
+      - name: Scan the image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: scan:${{ matrix.name }}
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          skip-files: usr/local/bin/aws-lambda-rie
+          exit-code: "1"
