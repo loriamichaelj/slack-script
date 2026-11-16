@@ -78,9 +78,13 @@ cost:
   alert_pct: 25          # flag a day this far above the average...
   min_abs_change: 1      # ...and at least this much more, in the account's currency
   top_services: 5
+  budget_warn_pct: 80    # with a budget: warn at this share spent, or when on pace to pass it
   accounts:
     - name: aws-main
       provider: aws      # Cost Explorer; optional linked_account to filter one member account
+      budget: 3          # optional monthly limit in the account's currency; the report shows
+                         # month to date against it and warns early. With two or more member
+                         # accounts (or GCP projects) it also lists each one's spend.
     - name: azure-prod
       provider: azure
       scope: /subscriptions/00000000-0000-0000-0000-000000000000
