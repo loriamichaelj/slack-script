@@ -6,17 +6,17 @@ output "workload_identity_provider" {
 }
 
 output "seed_admin_service_account" {
-  description = "SEED environment variable GCP_SERVICE_ACCOUNT."
+  description = "The service account the SEED environment signs in as."
   value       = google_service_account.seed_admin.email
 }
 
 output "dev_deployer_service_account" {
-  description = "DEV and CI environment variable GCP_SERVICE_ACCOUNT."
+  description = "The service account the DEV and CI environments sign in as to apply and destroy."
   value       = google_service_account.dev_deployer.email
 }
 
 output "tf_planner_service_account" {
-  description = "CI environment variable GCP_PLAN_SERVICE_ACCOUNT."
+  description = "The read-only service account the CI environment plans as."
   value       = google_service_account.tf_planner.email
 }
 

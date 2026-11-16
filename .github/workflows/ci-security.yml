@@ -1,4 +1,4 @@
-name: security
+name: ci security
 
 on:
   pull_request:
@@ -7,24 +7,29 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-security-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   trivy:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # CI requires a reviewer's approval before the job starts.
     environment: CI
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Trivy misconfiguration scan (Terraform)
-        uses: aquasecurity/trivy-action@v0.36.0
+      - name: Scan Terraform misconfigurations
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: config
           scan-ref: terraform
           severity: HIGH,CRITICAL
           exit-code: "1"
 
-      - name: Trivy dependency and secret scan
-        uses: aquasecurity/trivy-action@v0.36.0
+      - name: Scan dependencies and secrets
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -35,12 +40,13 @@ jobs:
 
   checkov:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment: CI
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Checkov (Terraform)
-        uses: bridgecrewio/checkov-action@v12
+      - name: Scan Terraform policies
+        uses: bridgecrewio/checkov-action@3f0caf0c3aa9f56ade6b49f6e60b63aaeafb75a3 # v12
         with:
           directory: terraform
           framework: terraform

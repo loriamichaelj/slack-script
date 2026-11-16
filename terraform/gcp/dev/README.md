@@ -13,8 +13,8 @@ Times are in `time_zone` (default `America/New_York`). Every job mounts the `sla
 
 ## How it gets deployed
 
-- `terraform apply` (on merge, `DEV` environment) creates the jobs with a placeholder image.
-- `deploy dev` then builds the image, pushes it to Artifact Registry, and points the jobs at it. It also runs on any app change. Terraform ignores the image, so the two never undo each other.
+- `tf apply` (on merge, `DEV` environment) creates the jobs with a placeholder image.
+- `deploy gcp dev` then builds the image, pushes it to Artifact Registry, and points the jobs at it. It also runs on any app change. Terraform ignores the image, so the two never undo each other.
 
 ## Slack webhooks
 
@@ -28,10 +28,10 @@ The jobs read the `slack-webhook` and `slack-routine-webhook` secrets, which SEE
 
 ## Tearing down
 
-Destroy is its own manual workflow, `terraform destroy`, and never runs on its own. Start it from the Actions tab, or:
+Destroy is its own manual workflow, `tf destroy`, and never runs on its own. Start it from the Actions tab, or:
 
 ```bash
-gh workflow run terraform-destroy.yml --ref dev -f root=dev -f confirm=dev
+gh workflow run tf-destroy.yml --ref dev -f target=gcp/dev -f confirm=gcp/dev
 ```
 
 It runs only from `dev`, only when `confirm` matches, and waits for approval in the `CI` environment. The summary shows the destroy plan before anything is removed. It deletes everything in this directory. The webhook secrets and their values live in SEED, so they survive and the next apply works straight away. SEED and the org metrics scope are never touched.

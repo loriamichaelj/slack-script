@@ -1,5 +1,7 @@
-name: deploy dev
+name: deploy gcp dev
 
+# Builds the image and points the Cloud Run jobs at it. AWS and Azure get their own
+# deploy-<cloud>-dev workflow when their dev roots exist.
 on:
   push:
     branches: [dev]
@@ -9,20 +11,19 @@ on:
       - ".dockerignore"
       - "pyproject.toml"
       - "config/actions.yaml"
-      - ".github/workflows/deploy-dev.yml"
-  # After terraform apply, so freshly created jobs get the real image.
+      - ".github/workflows/deploy-gcp-dev.yml"
+  # After tf apply, so freshly created jobs get the real image.
   workflow_run:
-    workflows: ["terraform apply"]
+    workflows: ["tf apply"]
     types: [completed]
     branches: [dev]
   workflow_dispatch:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
-  group: deploy-dev
+  group: deploy-gcp-dev
   cancel-in-progress: false
 
 env:
@@ -30,40 +31,36 @@ env:
   REGION: us-central1
   JOBS: anomaly-run routine-heartbeat routine-digest routine-cost
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   deploy:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # DEV only allows the dev branch. It signs in as dev-deployer.
     environment: DEV
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Check GCP access
-        id: gcp
-        env:
-          PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-        run: |
-          if [ -z "$PROVIDER" ]; then
-            echo "::notice::Deploy skipped: SEED is not bootstrapped yet (GCP_WORKLOAD_IDENTITY_PROVIDER is unset)."
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - if: steps.gcp.outputs.ready == 'true'
-        uses: google-github-actions/auth@v2
+      - name: Log in to gcp
+        id: login
+        uses: ./.github/actions/cloud-login
         with:
-          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
-
-      - if: steps.gcp.outputs.ready == 'true'
-        uses: google-github-actions/setup-gcloud@v2
+          cloud: gcp
+          identity: dev-deployer
+          gcp_workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          gcp_project: ${{ env.GCP_PROJECT }}
 
       # The jobs and the image repository come from terraform/gcp/dev.
       - name: Check DEV exists
         id: dev
-        if: steps.gcp.outputs.ready == 'true'
+        if: steps.login.outputs.ready == 'true'
         run: |
           if gcloud run jobs describe anomaly-run --region "$REGION" --project "$GCP_PROJECT" >/dev/null 2>&1; then
             echo "ready=true" >> "$GITHUB_OUTPUT"

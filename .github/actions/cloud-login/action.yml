@@ -1,0 +1,68 @@
+name: cloud login
+description: >
+  Sign in to a cloud with GitHub OIDC (no stored keys). The identity has the same name on
+  every cloud: a GCP service account or an AWS role called tf-planner, seed-admin or
+  dev-deployer. Reports ready=false, and signs in to nothing, until the cloud's seed is applied.
+
+inputs:
+  cloud:
+    description: gcp or aws
+    required: true
+  identity:
+    description: tf-planner, seed-admin or dev-deployer
+    required: true
+  gcp_workload_identity_provider:
+    description: Pass vars.GCP_WORKLOAD_IDENTITY_PROVIDER
+    required: false
+  gcp_project:
+    description: GCP project that holds the identities
+    required: false
+    default: slack-anomaly-dev
+  aws_account_id:
+    description: Pass vars.AWS_ACCOUNT_ID
+    required: false
+  aws_region:
+    required: false
+    default: us-east-1
+
+outputs:
+  ready:
+    description: "'true' if the cloud is bootstrapped and this job is signed in"
+    value: ${{ steps.gate.outputs.ready }}
+
+runs:
+  using: composite
+  steps:
+    - id: gate
+      shell: bash
+      env:
+        CLOUD: ${{ inputs.cloud }}
+        GCP_PROVIDER: ${{ inputs.gcp_workload_identity_provider }}
+        AWS_ACCOUNT: ${{ inputs.aws_account_id }}
+      run: |
+        case "$CLOUD" in
+          gcp) value="$GCP_PROVIDER"; name=GCP_WORKLOAD_IDENTITY_PROVIDER ;;
+          aws) value="$AWS_ACCOUNT"; name=AWS_ACCOUNT_ID ;;
+          *) echo "::error::unsupported cloud: $CLOUD"; exit 1 ;;
+        esac
+        if [ -z "$value" ]; then
+          echo "::notice::$CLOUD login skipped: its seed is not bootstrapped yet ($name is unset). See terraform/$CLOUD/seed/README.md."
+          echo "ready=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - if: steps.gate.outputs.ready == 'true' && inputs.cloud == 'gcp'
+      uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2
+      with:
+        workload_identity_provider: ${{ inputs.gcp_workload_identity_provider }}
+        service_account: ${{ inputs.identity }}@${{ inputs.gcp_project }}.iam.gserviceaccount.com
+
+    - if: steps.gate.outputs.ready == 'true' && inputs.cloud == 'gcp'
+      uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f # v2
+
+    - if: steps.gate.outputs.ready == 'true' && inputs.cloud == 'aws'
+      uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+      with:
+        role-to-assume: arn:aws:iam::${{ inputs.aws_account_id }}:role/${{ inputs.identity }}
+        aws-region: ${{ inputs.aws_region }}
