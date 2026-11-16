@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 import yaml
 
+from . import azureblob
 from .cost.gcp import TABLE_PATTERN as _BILLING_TABLE
 from .cost.report import CostSettings
 from .detectors import DETECTORS
@@ -66,7 +67,7 @@ class CostConfig:
 @dataclass(frozen=True)
 class Config:
     slack: SlackConfig
-    state_path: Path | str  # a str only for s3://bucket/key
+    state_path: Path | str  # a str only for s3://bucket/key or an Azure blob URL
     actions_path: Path | None
     metrics: list[MetricSpec]
     cost: CostConfig | None = None  # only routine cost reports need it
@@ -226,7 +227,7 @@ def _build_cost(raw) -> CostConfig:
 
 def _state_location(value) -> Path | str:
     text = str(value)
-    return text if text.startswith("s3://") else Path(text)
+    return text if text.startswith("s3://") or azureblob.is_blob_url(text) else Path(text)
 
 
 def load(path: str | Path) -> Config:
