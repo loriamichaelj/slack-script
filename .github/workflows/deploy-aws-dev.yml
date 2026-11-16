@@ -1,10 +1,7 @@
 name: deploy aws dev
 
 # Builds the Lambda container image and pushes it to ECR, then points the function at it.
-# Terraform creates the function, and ignores the code, so the two never undo each other.
-#
-# While the function still runs a zip package, this keeps deploying the zip. It switches
-# to the image by itself once Terraform has moved the function to a container image.
+# Terraform creates the function, and ignores the image, so the two never undo each other.
 on:
   push:
     branches: [dev]
@@ -12,7 +9,6 @@ on:
       - "src/**"
       - "Dockerfile"
       - ".dockerignore"
-      - "scripts/build-lambda.sh"
       - "pyproject.toml"
       - "config/actions.yaml"
       - ".github/workflows/deploy-aws-dev.yml"
@@ -73,14 +69,13 @@ jobs:
             echo "ready=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # The function is created by terraform/aws/dev. Its package type says which way to deploy.
+      # The function is created by terraform/aws/dev.
       - name: Check DEV exists
         id: dev
         if: steps.login.outputs.ready == 'true'
         run: |
-          if type=$(aws lambda get-function-configuration --function-name "$FUNCTION" --query PackageType --output text 2>/dev/null); then
+          if aws lambda get-function-configuration --function-name "$FUNCTION" >/dev/null 2>&1; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
-            echo "package=$type" >> "$GITHUB_OUTPUT"
           else
             echo "::notice::Function update skipped: the DEV function does not exist yet. Apply terraform/aws/dev first."
             echo "ready=false" >> "$GITHUB_OUTPUT"
@@ -107,28 +102,10 @@ jobs:
           echo "Pushed \`${URI}:${tag}\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Point the function at the image
-        if: steps.dev.outputs.package == 'Image' && steps.image.outputs.image != ''
+        if: steps.dev.outputs.ready == 'true' && steps.image.outputs.image != ''
         env:
           IMAGE: ${{ steps.image.outputs.image }}
         run: |
           aws lambda update-function-code --function-name "$FUNCTION" --image-uri "$IMAGE" >/dev/null
           aws lambda wait function-updated --function-name "$FUNCTION"
           echo "Deployed \`$IMAGE\` to \`$FUNCTION\`" >> "$GITHUB_STEP_SUMMARY"
-
-      # The function still runs a zip, until Terraform moves it to the image.
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        if: steps.dev.outputs.package == 'Zip'
-        with:
-          python-version: "3.12"
-
-      - name: Build the zip
-        if: steps.dev.outputs.package == 'Zip'
-        run: scripts/build-lambda.sh build/lambda.zip
-
-      - name: Upload the zip
-        if: steps.dev.outputs.package == 'Zip'
-        run: |
-          aws lambda update-function-code --function-name "$FUNCTION" --zip-file fileb://build/lambda.zip >/dev/null
-          aws lambda wait function-updated --function-name "$FUNCTION"
-          version=$(aws lambda get-function --function-name "$FUNCTION" --query 'Configuration.CodeSha256' --output text)
-          echo "Deployed \`$FUNCTION\` (code sha256 \`$version\`) from $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"

@@ -13,7 +13,7 @@ Times are in `time_zone` (default `America/New_York`). A failed run is not retri
 
 ## What it creates
 
-- the `anomaly-alerts` Lambda (Python 3.12, 256 MB, 5 minute timeout) and its log group (14 days)
+- the `anomaly-alerts` Lambda, a container image from the `anomaly-alerts` ECR repository (256 MB, 5 minute timeout), and its log group (14 days)
 - the app bucket `slack-anomaly-dev-anomaly-app`, with `config.yaml` (rendered from `config.yaml.tftpl`) and the cooldown state at `state/alerts.json`
 - the four schedules, and the `slack-anomaly-scheduler` role they start the Lambda as (it may only invoke that function)
 
@@ -21,8 +21,8 @@ The Lambda runs as `anomaly-runtime`, and the webhook secrets come from SEED. Th
 
 ## How it gets deployed
 
-- `tf apply` (on merge, `DEV` environment) creates the function with a placeholder handler.
-- `deploy aws dev` then builds the zip (`scripts/build-lambda.sh`) and uploads it. It also runs on any app change. Terraform ignores the code after creation, so the two never undo each other.
+- `tf apply` (on merge, `DEV` environment) creates the function from the `latest` image in ECR.
+- `deploy aws dev` builds the `lambda` target of the repo's Dockerfile on a CI runner, pushes it to ECR tagged by commit, and points the function at that tag. It also runs on any app change. Terraform ignores the image after creation, so the two never undo each other. Images must come from CI: a Mac builds `arm64`, and the function is `x86_64`.
 
 ## Prerequisites
 
