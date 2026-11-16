@@ -6,9 +6,12 @@
 #   select-roots.sh changed         roots whose directory changed between $BEFORE and $GITHUB_SHA
 #   select-roots.sh target CLOUD/ROOT   one root, for example gcp/seed
 #
-# With ONLY_READY=1, roots of a cloud that is not bootstrapped yet are dropped, so no
-# job (and no environment approval) is started for them. A cloud counts as bootstrapped
-# once its repository variable is set: GCP_WORKLOAD_IDENTITY_PROVIDER or AWS_ACCOUNT_ID.
+# ONLY_READY=1 drops roots of a cloud that is not bootstrapped yet, so no job (and no
+# environment approval) is started for them. A cloud counts as bootstrapped once its
+# repository variable is set: GCP_WORKLOAD_IDENTITY_PROVIDER, AWS_ACCOUNT_ID, or
+# AZURE_TENANT_ID together with AZURE_SUBSCRIPTION_ID.
+#
+# FOR_APPLY=1 drops roots that are planned in CI but applied by hand ("apply": false).
 set -euo pipefail
 
 registry="$(cd "$(dirname "$0")/.." && pwd)/terraform-roots.json"
@@ -43,9 +46,21 @@ case "$mode" in
     ;;
 esac
 
+if [ "${FOR_APPLY:-}" = "1" ]; then
+  roots=$(jq -c '[.[] | select(.apply != false)]' <<<"$roots")
+fi
+
 if [ "${ONLY_READY:-}" = "1" ]; then
-  ready=$(jq -c --arg gcp "${GCP_WORKLOAD_IDENTITY_PROVIDER:-}" --arg aws "${AWS_ACCOUNT_ID:-}" \
-    '[.[] | select((.cloud == "gcp" and $gcp != "") or (.cloud == "aws" and $aws != ""))]' <<<"$roots")
+  ready=$(jq -c \
+    --arg gcp "${GCP_WORKLOAD_IDENTITY_PROVIDER:-}" \
+    --arg aws "${AWS_ACCOUNT_ID:-}" \
+    --arg az_tenant "${AZURE_TENANT_ID:-}" \
+    --arg az_subscription "${AZURE_SUBSCRIPTION_ID:-}" \
+    '[.[] | select(
+        (.cloud == "gcp" and $gcp != "") or
+        (.cloud == "aws" and $aws != "") or
+        (.cloud == "azure" and $az_tenant != "" and $az_subscription != "")
+      )]' <<<"$roots")
   if [ "$ready" != "$roots" ]; then
     echo "::notice::Skipped roots of clouds that are not bootstrapped yet (see terraform/<cloud>/seed/README.md)." >&2
   fi

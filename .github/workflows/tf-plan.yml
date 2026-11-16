@@ -74,15 +74,23 @@ jobs:
           identity: ${{ matrix.plan_identity }}
           gcp_workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+          azure_tenant_id: ${{ vars.AZURE_TENANT_ID }}
+          azure_subscription_id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          azure_client_id_tf_planner: ${{ vars.AZURE_CLIENT_ID_TF_PLANNER }}
+          azure_client_id_seed_admin: ${{ vars.AZURE_CLIENT_ID_SEED_ADMIN }}
+          azure_client_id_dev_deployer: ${{ vars.AZURE_CLIENT_ID_DEV_DEPLOYER }}
 
       # The planner cannot create state. With none yet, plan against an empty local
       # state: everything shows as new, which is what the first apply would do.
       - name: Init
         if: steps.login.outputs.ready == 'true'
         working-directory: terraform/${{ matrix.cloud }}/${{ matrix.root }}
+        env:
+          BACKEND: ${{ toJSON(matrix.backend) }}
         run: |
-          if "$GITHUB_WORKSPACE/.github/scripts/state-exists.sh" "${{ matrix.cloud }}" "${{ matrix.state }}" "${{ matrix.root }}"; then
-            terraform init -input=false -reconfigure -backend-config="bucket=${{ matrix.state }}"
+          if "$GITHUB_WORKSPACE/.github/scripts/state-exists.sh" "${{ matrix.cloud }}" "${{ matrix.root }}"; then
+            mapfile -t backend_args < <(jq -r 'to_entries[] | "-backend-config=\(.key)=\(.value)"' <<<"$BACKEND")
+            terraform init -input=false -reconfigure "${backend_args[@]}"
           else
             echo "::notice::No ${{ matrix.cloud }}/${{ matrix.root }} state yet: planning against an empty state, so every resource shows as new."
             printf 'terraform {\n  backend "local" {}\n}\n' > backend_override.tf

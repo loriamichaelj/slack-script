@@ -1,12 +1,13 @@
 name: cloud login
 description: >
   Sign in to a cloud with GitHub OIDC (no stored keys). The identity has the same name on
-  every cloud: a GCP service account or an AWS role called tf-planner, seed-admin or
-  dev-deployer. Reports ready=false, and signs in to nothing, until the cloud's seed is applied.
+  every cloud: a GCP service account, an AWS role or an Azure app registration called
+  tf-planner, seed-admin or dev-deployer. Reports ready=false, and signs in to nothing,
+  until the cloud's seed is applied.
 
 inputs:
   cloud:
-    description: gcp or aws
+    description: gcp, aws or azure
     required: true
   identity:
     description: tf-planner, seed-admin or dev-deployer
@@ -24,6 +25,21 @@ inputs:
   aws_region:
     required: false
     default: us-east-1
+  azure_tenant_id:
+    description: Pass vars.AZURE_TENANT_ID
+    required: false
+  azure_subscription_id:
+    description: Pass vars.AZURE_SUBSCRIPTION_ID
+    required: false
+  azure_client_id_tf_planner:
+    description: Pass vars.AZURE_CLIENT_ID_TF_PLANNER
+    required: false
+  azure_client_id_seed_admin:
+    description: Pass vars.AZURE_CLIENT_ID_SEED_ADMIN
+    required: false
+  azure_client_id_dev_deployer:
+    description: Pass vars.AZURE_CLIENT_ID_DEV_DEPLOYER
+    required: false
 
 outputs:
   ready:
@@ -37,19 +53,38 @@ runs:
       shell: bash
       env:
         CLOUD: ${{ inputs.cloud }}
+        IDENTITY: ${{ inputs.identity }}
         GCP_PROVIDER: ${{ inputs.gcp_workload_identity_provider }}
         AWS_ACCOUNT: ${{ inputs.aws_account_id }}
+        AZURE_TENANT: ${{ inputs.azure_tenant_id }}
+        AZURE_SUBSCRIPTION: ${{ inputs.azure_subscription_id }}
+        AZURE_CLIENT_TF_PLANNER: ${{ inputs.azure_client_id_tf_planner }}
+        AZURE_CLIENT_SEED_ADMIN: ${{ inputs.azure_client_id_seed_admin }}
+        AZURE_CLIENT_DEV_DEPLOYER: ${{ inputs.azure_client_id_dev_deployer }}
       run: |
+        client=""
         case "$CLOUD" in
           gcp) value="$GCP_PROVIDER"; name=GCP_WORKLOAD_IDENTITY_PROVIDER ;;
           aws) value="$AWS_ACCOUNT"; name=AWS_ACCOUNT_ID ;;
+          azure)
+            # Each identity is its own app registration, so each has its own client ID.
+            case "$IDENTITY" in
+              tf-planner) client="$AZURE_CLIENT_TF_PLANNER" ;;
+              seed-admin) client="$AZURE_CLIENT_SEED_ADMIN" ;;
+              dev-deployer) client="$AZURE_CLIENT_DEV_DEPLOYER" ;;
+              *) echo "::error::unknown identity: $IDENTITY"; exit 1 ;;
+            esac
+            if [ -n "$AZURE_TENANT" ] && [ -n "$AZURE_SUBSCRIPTION" ] && [ -n "$client" ]; then value=ready; else value=""; fi
+            name="AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID and the client ID of $IDENTITY"
+            ;;
           *) echo "::error::unsupported cloud: $CLOUD"; exit 1 ;;
         esac
         if [ -z "$value" ]; then
-          echo "::notice::$CLOUD login skipped: its seed is not bootstrapped yet ($name is unset). See terraform/$CLOUD/seed/README.md."
+          echo "::notice::$CLOUD login skipped: its seed is not bootstrapped yet ($name unset). See terraform/$CLOUD/seed/README.md."
           echo "ready=false" >> "$GITHUB_OUTPUT"
         else
           echo "ready=true" >> "$GITHUB_OUTPUT"
+          echo "azure_client_id=$client" >> "$GITHUB_OUTPUT"
         fi
 
     - if: steps.gate.outputs.ready == 'true' && inputs.cloud == 'gcp'
@@ -66,3 +101,20 @@ runs:
       with:
         role-to-assume: arn:aws:iam::${{ inputs.aws_account_id }}:role/${{ inputs.identity }}
         aws-region: ${{ inputs.aws_region }}
+
+    - if: steps.gate.outputs.ready == 'true' && inputs.cloud == 'azure'
+      uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2
+      with:
+        client-id: ${{ steps.gate.outputs.azure_client_id }}
+        tenant-id: ${{ inputs.azure_tenant_id }}
+        subscription-id: ${{ inputs.azure_subscription_id }}
+
+    # Terraform's azurerm and azuread providers and its azurerm backend use the az session.
+    - if: steps.gate.outputs.ready == 'true' && inputs.cloud == 'azure'
+      shell: bash
+      env:
+        AZURE_TENANT: ${{ inputs.azure_tenant_id }}
+        AZURE_SUBSCRIPTION: ${{ inputs.azure_subscription_id }}
+      run: |
+        echo "ARM_TENANT_ID=$AZURE_TENANT" >> "$GITHUB_ENV"
+        echo "ARM_SUBSCRIPTION_ID=$AZURE_SUBSCRIPTION" >> "$GITHUB_ENV"
