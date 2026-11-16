@@ -1,0 +1,84 @@
+name: deploy aws dev
+
+# Builds the Lambda zip and uploads it. Terraform creates the function with a
+# placeholder and ignores the code after that, so the two never undo each other.
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "src/**"
+      - "scripts/build-lambda.sh"
+      - "pyproject.toml"
+      - "config/actions.yaml"
+      - ".github/workflows/deploy-aws-dev.yml"
+  # After tf apply, so a freshly created function gets the real code.
+  workflow_run:
+    workflows: ["tf apply"]
+    types: [completed]
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-aws-dev
+  cancel-in-progress: false
+
+env:
+  FUNCTION: anomaly-alerts
+  AWS_REGION: us-east-1
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # DEV only allows the dev branch. It signs in as dev-deployer.
+    environment: DEV
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Log in to aws
+        id: login
+        uses: ./.github/actions/cloud-login
+        with:
+          cloud: aws
+          identity: dev-deployer
+          aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+
+      # The function comes from terraform/aws/dev.
+      - name: Check DEV exists
+        id: dev
+        if: steps.login.outputs.ready == 'true'
+        run: |
+          if aws lambda get-function --function-name "$FUNCTION" >/dev/null 2>&1; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Deploy skipped: the DEV function does not exist yet. Apply terraform/aws/dev first."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: steps.dev.outputs.ready == 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Build
+        if: steps.dev.outputs.ready == 'true'
+        run: scripts/build-lambda.sh build/lambda.zip
+
+      - name: Upload the code
+        if: steps.dev.outputs.ready == 'true'
+        run: |
+          aws lambda update-function-code --function-name "$FUNCTION" --zip-file fileb://build/lambda.zip >/dev/null
+          aws lambda wait function-updated --function-name "$FUNCTION"
+          version=$(aws lambda get-function --function-name "$FUNCTION" --query 'Configuration.CodeSha256' --output text)
+          echo "Deployed \`$FUNCTION\` (code sha256 \`$version\`) from $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
