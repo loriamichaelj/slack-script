@@ -281,23 +281,40 @@ def _cost_section(summary) -> str:
     name = f"*{esc(summary.spec.name)}* ({provider})"
     if summary.total is None:
         return f":hourglass_flowing_sand: {name}: no cost data for {summary.day} yet"
-    icon = ":chart_with_upwards_trend:" if summary.spike else ":large_green_circle:"
+    icon = {"over": ":rotating_light:", "warn": ":warning:"}.get(summary.budget_state) or (
+        ":chart_with_upwards_trend:" if summary.spike else ":large_green_circle:"
+    )
     line = f"{icon} {name}: *{money(summary.total, summary.currency)}*"
     if summary.baseline is not None:
         line += f" vs {money(summary.baseline, summary.currency)} daily average{_pct_text(summary.change_pct)}"
     line += f" | month to date {money(summary.month_to_date, summary.currency)}"
+    if summary.budget:
+        line += (
+            f" of {money(summary.budget, summary.currency)} budget ({summary.budget_used_pct:.0f}%)"
+            + (f", on pace for {money(summary.projected, summary.currency)}" if summary.projected is not None else "")
+        )
+    accounts = [
+        f"   account {esc(a.account)}: {money(a.amount, summary.currency)}{_pct_text(a.change_pct)}"
+        for a in summary.accounts
+    ]
     services = [
         f"   {esc(s.service)}: {money(s.amount, summary.currency)}{_pct_text(s.change_pct)}"
         for s in summary.services
     ]
-    return "\n".join([line, *services])
+    return "\n".join([line, *accounts, *services])
 
 
 def build_cost_payload(now, day, summaries, failed) -> dict:
     """Routine spend report. Failed accounts are named only, never with error text."""
     spikes = sum(1 for s in summaries if s.spike)
-    if spikes:
+    over = sum(1 for s in summaries if s.budget_state == "over")
+    near = sum(1 for s in summaries if s.budget_state == "warn")
+    if over:
+        status, color = "OVER BUDGET", COLORS["critical"]
+    elif spikes:
         status, color = "SPIKE", COLORS["warning"]
+    elif near:
+        status, color = "BUDGET WARNING", COLORS["warning"]
     elif failed:
         status, color = "DEGRADED", COLORS["warning"]
     else:
@@ -310,7 +327,7 @@ def build_cost_payload(now, day, summaries, failed) -> dict:
         blocks.append(
             {"type": "section", "text": {"type": "mrkdwn", "text": f"Total: *{money(total, currencies.pop())}*"}}
         )
-    lines = [_cost_section(s) for s in sorted(summaries, key=lambda s: (not s.spike, s.spec.name))]
+    lines = [_cost_section(s) for s in sorted(summaries, key=lambda s: (not s.flagged, s.spec.name))]
     lines += [
         f":warning: *{esc(spec.name)}* ({PROVIDER_LABELS.get(spec.provider, spec.provider)}): could not fetch costs"
         for spec in failed
@@ -320,6 +337,10 @@ def build_cost_payload(now, day, summaries, failed) -> dict:
         {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Run at {_stamp(now)} UTC"}]}
     )
     parts = [f"{len(summaries) + len(failed)} account{'s' if len(summaries) + len(failed) != 1 else ''}"]
+    if over:
+        parts.append(f"{over} over budget")
+    if near:
+        parts.append(f"{near} near budget")
     if spikes:
         parts.append(f"{spikes} spike{'s' if spikes != 1 else ''}")
     if failed:

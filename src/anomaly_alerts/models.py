@@ -106,6 +106,7 @@ class CostSpec:
     name: str
     provider: str
     selector: dict  # cloud-specific keys, validated in config.py
+    budget: float | None = None  # monthly spend limit in the account's currency
 
 
 @dataclass(frozen=True)
@@ -113,6 +114,7 @@ class DailyCost:
     day: date
     service: str
     amount: float
+    account: str = ""  # member account or project the spend belongs to; "" if the cloud has none
 
 
 @dataclass

@@ -1,4 +1,4 @@
-"""GCP spend from the Cloud Billing export to BigQuery, grouped by service.
+"""GCP spend from the Cloud Billing export to BigQuery, grouped by service and project.
 
 The export must be turned on in the console first, and it takes about a day to fill.
 Costs are net of credits (free tier, discounts) and dated by usage start, in UTC.
@@ -19,6 +19,7 @@ _QUERY = """
 SELECT
   DATE(usage_start_time) AS day,
   service.description AS service,
+  IFNULL(project.id, "") AS account,
   currency,
   SUM(cost) + SUM(IFNULL((SELECT SUM(c.amount) FROM UNNEST(credits) AS c), 0)) AS amount
 FROM `{table}`
@@ -27,7 +28,7 @@ WHERE usage_start_time >= TIMESTAMP(@start)
   -- Prune partitions; rows can land up to a few days after their usage.
   AND DATE(_PARTITIONTIME) >= DATE_SUB(@start, INTERVAL 1 DAY)
   {project_filter}
-GROUP BY day, service, currency
+GROUP BY day, service, account, currency
 """
 
 
@@ -81,5 +82,7 @@ class GcpCostProvider:
         currency = "USD"
         for row in result:
             currency = row["currency"] or currency
-            rows.append(DailyCost(row["day"], row["service"] or "Other", float(row["amount"])))
+            rows.append(
+                DailyCost(row["day"], row["service"] or "Other", float(row["amount"]), row.get("account") or "")
+            )
         return CostData(provider="gcp", scope=project or table, currency=currency, rows=rows)

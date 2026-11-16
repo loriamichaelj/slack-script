@@ -183,7 +183,7 @@ def run_cost(
     result = RoutineResult(
         checked=len(summaries),
         total=len(summaries) + len(failed),
-        anomalies=sum(1 for s in summaries if s.spike),
+        anomalies=sum(1 for s in summaries if s.flagged),
         fetch_errors=len(failed),
     )
     _post(post, blocks.build_cost_payload(now, day, summaries, failed), result, "cost report")

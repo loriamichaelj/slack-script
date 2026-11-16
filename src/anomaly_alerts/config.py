@@ -35,7 +35,9 @@ _SELECTORS = {
     "gcp": ({"project", "metric_type"}, {"filter", "aligner", "reducer", "group_by"}),
 }
 
-_COST_KEYS = {"lag_days", "baseline_days", "alert_pct", "min_abs_change", "top_services", "accounts"}
+_COST_KEYS = {
+    "lag_days", "baseline_days", "alert_pct", "min_abs_change", "top_services", "budget_warn_pct", "accounts",
+}
 # Required and optional selector keys per cloud for cost accounts.
 _COST_SELECTORS = {
     "aws": (set(), {"linked_account"}),
@@ -187,6 +189,7 @@ def _build_cost(raw) -> CostConfig:
         alert_pct=_number(raw, "alert_pct", 25, "cost", minimum=1),
         min_abs_change=_number(raw, "min_abs_change", 1, "cost", minimum=0),
         top_services=_number(raw, "top_services", 5, "cost", integer=True, minimum=1, maximum=20),
+        budget_warn_pct=_number(raw, "budget_warn_pct", 80, "cost", minimum=1, maximum=100),
     )
     entries = raw.get("accounts")
     if not isinstance(entries, list) or not entries:
@@ -204,11 +207,16 @@ def _build_cost(raw) -> CostConfig:
             raise ConfigError(
                 f"{label}: provider must be one of {sorted(_COST_SELECTORS)}, got {provider!r}"
             )
-        selector = _selector(entry, {"name", "provider"}, _COST_SELECTORS, provider, label)
+        selector = _selector(entry, {"name", "provider", "budget"}, _COST_SELECTORS, provider, label)
+        budget = None
+        if "budget" in entry:
+            budget = _number(entry, "budget", 0, label, minimum=0)
+            if budget == 0:
+                raise ConfigError(f"{label}: budget must be more than 0")
         table = selector.get("billing_table")
         if table is not None and not _BILLING_TABLE.match(str(table)):
             raise ConfigError(f"{label}: billing_table must look like project.dataset.table, got {table!r}")
-        accounts.append(CostSpec(name=name, provider=provider, selector=selector))
+        accounts.append(CostSpec(name=name, provider=provider, selector=selector, budget=budget))
     names = [a.name for a in accounts]
     dupes = sorted({n for n in names if names.count(n) > 1})
     if dupes:

@@ -117,6 +117,129 @@ class SummarizeTests(unittest.TestCase):
         self.assertEqual((s.total, s.services[0].amount), (5.0, 5.0))
 
 
+class BudgetTests(unittest.TestCase):
+    """DAY is 2026-10-28, so a month to date over 28 days of a 31 day month."""
+
+    def budgeted(self, daily_amount, budget=3.0, day=DAY, settings=SETTINGS):
+        rows = [DailyCost(day - timedelta(days=i), "EC2", daily_amount) for i in range(0, day.day)]
+        return summarize(CostSpec("aws-main", "aws", {}, budget=budget), data(rows), day, settings)
+
+    def test_no_budget_means_no_budget_fields(self):
+        s = summarize(spec(), data(daily({"EC2": (1.0, 1.0)})), DAY, SETTINGS)
+        self.assertEqual((s.budget, s.budget_state, s.projected, s.budget_used_pct), (None, None, None, None))
+        self.assertFalse(s.flagged)
+
+    def test_well_under_budget_is_ok(self):
+        s = self.budgeted(0.05)  # 1.40 so far, on pace for 1.55
+        self.assertEqual(s.budget_state, "ok")
+        self.assertAlmostEqual(s.month_to_date, 1.40)
+        self.assertAlmostEqual(s.projected, 1.55)
+        self.assertAlmostEqual(s.budget_used_pct, 1.40 / 3.0 * 100)
+        self.assertFalse(s.flagged)
+
+    def test_most_of_the_budget_spent_warns(self):
+        s = self.budgeted(0.09)  # 2.52 so far, which is 84%
+        self.assertEqual(s.budget_state, "warn")
+        self.assertTrue(s.flagged)
+
+    def test_pace_past_the_budget_warns_before_it_is_spent(self):
+        s = self.budgeted(0.105)  # 2.94 so far (98%) but on pace for 3.255
+        self.assertEqual(s.budget_state, "warn")
+        s = self.budgeted(0.088, budget=4.0)  # 2.46 so far (62%), on pace for 2.72
+        self.assertEqual(s.budget_state, "ok")
+
+    def test_over_budget(self):
+        s = self.budgeted(0.12)  # 3.36 so far
+        self.assertEqual(s.budget_state, "over")
+        self.assertTrue(s.flagged)
+
+    def test_early_in_the_month_there_is_no_projection(self):
+        s = self.budgeted(1.0, day=date(2026, 10, 3))  # 3.00 so far: spent exactly the budget
+        self.assertIsNone(s.projected)
+        self.assertEqual(s.budget_state, "warn")  # 100% of a budget that is not exceeded yet
+
+    def test_warning_threshold_is_configurable(self):
+        s = self.budgeted(0.09, settings=CostSettings(budget_warn_pct=95))
+        self.assertEqual(s.budget_state, "ok")  # 84% used, and on pace for 2.79
+        s = self.budgeted(0.05, settings=CostSettings(budget_warn_pct=40))
+        self.assertEqual(s.budget_state, "warn")  # 47% used is past 40%
+
+
+class AccountBreakdownTests(unittest.TestCase):
+    def rows(self, accounts):
+        rows = []
+        for account, (base, today) in accounts.items():
+            rows.append(DailyCost(DAY, "EC2", today, account))
+            rows += [DailyCost(DAY - timedelta(days=i), "EC2", base, account) for i in range(1, 8)]
+        return rows
+
+    def test_two_accounts_are_listed_biggest_first_with_their_change(self):
+        s = summarize(spec(), data(self.rows({"111": (1.0, 1.0), "222": (2.0, 3.0)})), DAY, SETTINGS)
+        self.assertEqual([(a.account, a.amount) for a in s.accounts], [("222", 3.0), ("111", 1.0)])
+        self.assertAlmostEqual(s.accounts[0].change_pct, 50.0)
+        self.assertEqual(s.total, 4.0)
+
+    def test_one_account_is_not_repeated(self):
+        s = summarize(spec(), data(self.rows({"111": (1.0, 1.0)})), DAY, SETTINGS)
+        self.assertEqual(s.accounts, [])
+
+    def test_rows_without_an_account_give_no_breakdown(self):
+        s = summarize(spec(), data(daily({"EC2": (1.0, 1.0)})), DAY, SETTINGS)
+        self.assertEqual(s.accounts, [])
+
+    def test_accounts_are_limited_like_services(self):
+        s = summarize(spec(), data(self.rows({str(i): (1.0, float(i)) for i in range(1, 9)})), DAY,
+                      CostSettings(top_services=3))
+        self.assertEqual([a.account for a in s.accounts], ["8", "7", "6"])
+
+    def test_an_account_with_no_spend_that_day_is_left_out(self):
+        rows = self.rows({"111": (1.0, 1.0), "222": (1.0, 2.0)}) + [DailyCost(DAY - timedelta(days=1), "EC2", 5.0, "333")]
+        s = summarize(spec(), data(rows), DAY, SETTINGS)
+        self.assertEqual([a.account for a in s.accounts], ["222", "111"])
+
+
+class BudgetPayloadTests(unittest.TestCase):
+    def payload(self, rows, **spec_kwargs):
+        s = summarize(CostSpec("aws-main", "aws", {}, **spec_kwargs), data(rows), DAY, SETTINGS)
+        return blocks.build_cost_payload(NOW, DAY, [s], [])
+
+    def flat_rows(self, amount):
+        return [DailyCost(DAY - timedelta(days=i), "EC2", amount) for i in range(0, 28)]
+
+    def test_budget_line_shows_spend_percentage_and_pace(self):
+        text = all_text(self.payload(self.flat_rows(0.05), budget=3.0))
+        self.assertIn("of 3.00 USD budget (47%), on pace for 1.55 USD", text)
+        self.assertIn("Cost report for 2026-10-28: OK", text)
+
+    def test_near_budget_has_its_own_status(self):
+        p = self.payload(self.flat_rows(0.09), budget=3.0)
+        self.assertIn("BUDGET WARNING", all_text(p))
+        self.assertEqual(p["attachments"][0]["color"], blocks.COLORS["warning"])
+
+    def test_over_budget_is_critical(self):
+        p = self.payload(self.flat_rows(0.12), budget=3.0)
+        self.assertIn("OVER BUDGET", p["text"])
+        self.assertIn("1 over budget", p["text"])
+        self.assertEqual(p["attachments"][0]["color"], blocks.COLORS["critical"])
+        self.assertIn(":rotating_light:", all_text(p))
+
+    def test_no_budget_leaves_the_report_unchanged(self):
+        self.assertNotIn("budget", all_text(self.payload(self.flat_rows(0.05))))
+
+    def test_account_breakdown_lines_are_shown(self):
+        rows = [DailyCost(DAY - timedelta(days=i), "EC2", 1.0, a) for i in range(0, 8) for a in ("111", "222")]
+        text = all_text(self.payload(rows))
+        self.assertIn("account 222: 1.00 USD", text)
+        self.assertIn("account 111: 1.00 USD", text)
+
+    def test_the_run_counts_a_budget_warning_as_flagged(self):
+        pool = CostProviderPool({"aws": FakeCost({"aws-main": data(self.flat_rows(0.12))})})
+        posted = []
+        account = CostSpec("aws-main", "aws", {}, budget=3.0)
+        result = routine.run_cost(make_config([account]), pool, posted.append, NOW)
+        self.assertEqual((result.anomalies, result.ok), (1, True))
+
+
 def make_config(accounts, settings=SETTINGS):
     return Config(SlackConfig("X"), Path("unused.json"), None, [make_spec()], CostConfig(settings, accounts))
 
@@ -265,6 +388,22 @@ cost:
                 ("gcp-dev", "gcp", {"billing_table": "p.d.t", "project": "dev"}),
             ],
         )
+
+    def test_budget_is_read_per_account_and_is_not_a_selector(self):
+        cfg = self.load("""
+cost:
+  budget_warn_pct: 90
+  accounts:
+    - {name: aws-main, provider: aws, budget: 3}
+    - {name: azure-prod, provider: azure, scope: /subscriptions/x}
+""")
+        self.assertEqual(cfg.cost.settings.budget_warn_pct, 90)
+        self.assertEqual([(a.budget, a.selector) for a in cfg.cost.accounts], [(3.0, {}), (None, {"scope": "/subscriptions/x"})])
+
+    def test_budget_must_be_a_positive_number(self):
+        self.assert_error("cost:\n  accounts:\n    - {name: a, provider: aws, budget: 0}", "budget must be more than 0")
+        self.assert_error("cost:\n  accounts:\n    - {name: a, provider: aws, budget: -1}", "budget must be at least 0")
+        self.assert_error("cost:\n  accounts:\n    - {name: a, provider: aws, budget: lots}", "budget must be a number")
 
     def test_missing_required_selector(self):
         self.assert_error("cost: {accounts: [{name: a, provider: azure}]}", "missing required key(s) ['scope']")

@@ -7,8 +7,9 @@ from anomaly_alerts.cost.aws import AwsCostProvider
 from anomaly_alerts.models import CostSpec, DailyCost
 
 
-def group(service, amount, unit="USD"):
-    return {"Keys": [service], "Metrics": {"UnblendedCost": {"Amount": str(amount), "Unit": unit}}}
+def group(service, amount, unit="USD", account=None):
+    keys = [service] if account is None else [service, account]
+    return {"Keys": keys, "Metrics": {"UnblendedCost": {"Amount": str(amount), "Unit": unit}}}
 
 
 def day_result(start, *groups):
@@ -35,13 +36,32 @@ class AwsCostProviderTests(unittest.TestCase):
         provider = AwsCostProvider(client_factory=lambda: fake)
         return provider.fetch(spec(**selector), date(2026, 10, 1), date(2026, 10, 29)), fake
 
+    def test_rows_carry_the_linked_account(self):
+        pages = [{"ResultsByTime": [day_result(
+            "2026-10-28",
+            group("Amazon EC2", "2", account="111111111111"),
+            group("Amazon S3", "1", account="222222222222"),
+        )]}]
+        data, _ = self.fetch(pages)
+        self.assertEqual(
+            [(r.service, r.account) for r in data.rows],
+            [("Amazon EC2", "111111111111"), ("Amazon S3", "222222222222")],
+        )
+
+    def test_a_group_without_an_account_key_has_no_account(self):
+        data, _ = self.fetch([{"ResultsByTime": [day_result("2026-10-28", group("Amazon EC2", "2"))]}])
+        self.assertEqual(data.rows[0].account, "")
+
     def test_builds_a_daily_per_service_request(self):
         _, fake = self.fetch([{"ResultsByTime": []}])
         [request] = fake.requests
         self.assertEqual(request["TimePeriod"], {"Start": "2026-10-01", "End": "2026-10-29"})
         self.assertEqual(request["Granularity"], "DAILY")
         self.assertEqual(request["Metrics"], ["UnblendedCost"])
-        self.assertEqual(request["GroupBy"], [{"Type": "DIMENSION", "Key": "SERVICE"}])
+        self.assertEqual(
+            request["GroupBy"],
+            [{"Type": "DIMENSION", "Key": "SERVICE"}, {"Type": "DIMENSION", "Key": "LINKED_ACCOUNT"}],
+        )
         self.assertNotIn("Filter", request)
 
     def test_parses_rows_currency_and_scope(self):

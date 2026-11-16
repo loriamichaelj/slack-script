@@ -1,4 +1,4 @@
-"""AWS spend via Cost Explorer get_cost_and_usage, grouped by service.
+"""AWS spend via Cost Explorer get_cost_and_usage, grouped by service and linked account.
 
 Cost Explorer charges per request, so one run makes one call per account (plus pages).
 """
@@ -34,7 +34,7 @@ class AwsCostProvider:
             "TimePeriod": {"Start": start.isoformat(), "End": end.isoformat()},  # End is exclusive
             "Granularity": "DAILY",
             "Metrics": [METRIC],
-            "GroupBy": [{"Type": "DIMENSION", "Key": "SERVICE"}],
+            "GroupBy": [{"Type": "DIMENSION", "Key": "SERVICE"}, {"Type": "DIMENSION", "Key": "LINKED_ACCOUNT"}],
         }
         if linked:
             request["Filter"] = {"Dimensions": {"Key": "LINKED_ACCOUNT", "Values": [str(linked)]}}
@@ -48,7 +48,9 @@ class AwsCostProvider:
                 for group in result.get("Groups", []):
                     cost = group["Metrics"][METRIC]
                     currency = cost.get("Unit") or currency
-                    rows.append(DailyCost(day, group["Keys"][0], float(cost["Amount"])))
+                    keys = group["Keys"]
+                    account = keys[1] if len(keys) > 1 else ""
+                    rows.append(DailyCost(day, keys[0], float(cost["Amount"]), account))
             token = page.get("NextPageToken")
             if not token:
                 break

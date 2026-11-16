@@ -30,8 +30,8 @@ class FakeBigQuery:
         return FakeJob(self.rows)
 
 
-def row(day, service, amount, currency="USD"):
-    return {"day": day, "service": service, "amount": amount, "currency": currency}
+def row(day, service, amount, currency="USD", account=""):
+    return {"day": day, "service": service, "amount": amount, "currency": currency, "account": account}
 
 
 def spec(**selector):
@@ -98,6 +98,11 @@ class GcpCostProviderTests(unittest.TestCase):
             DailyCost(date(2026, 10, 28), "Cloud Run", 0.0),
             DailyCost(date(2026, 10, 28), "Other", 1.5),
         ])
+
+    def test_rows_carry_the_project_and_the_query_groups_by_it(self):
+        data, fake = self.fetch([row(date(2026, 10, 28), "Compute Engine", 2.0, account="proj-a")])
+        self.assertEqual(data.rows[0].account, "proj-a")
+        self.assertIn("GROUP BY day, service, account, currency", fake.queries[0][0])
 
     def test_malformed_table_is_rejected_before_querying(self):
         fake = FakeBigQuery([])

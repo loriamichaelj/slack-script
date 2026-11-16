@@ -34,8 +34,11 @@ metrics:
     fill_missing: zero
     min_abs_change: 1
 
+# The report shows month to date against a monthly budget, and warns at 80% or when the
+# month is on pace to pass it. With more than one member account it also lists each one.
 cost:
   lag_days: 1
   accounts:
     - name: aws-main
       provider: aws
+      budget: 3
