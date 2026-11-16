@@ -13,7 +13,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import actions, config, pipeline, routine
+from . import actions, config, pipeline, routine, runtime
 from .cost import CostProviderPool
 from .providers import ProviderPool
 from .slack import client
@@ -79,7 +79,10 @@ def main(argv=None) -> int:
 
     try:
         _load_dotenv(Path(".env"))
-        cfg = config.load(args.config)
+        # A container host can name the config by URL or inline, and secrets by id, so one
+        # image runs the same way everywhere (see runtime.py). A plain path is used as it is.
+        runtime.load_secrets()
+        cfg = config.load(runtime.resolve_config(args.config))
         rules = actions.load_rules(cfg.actions_path)
         is_routine = args.command == "routine"
         if is_routine and args.kind == "cost" and cfg.cost is None:
@@ -90,7 +93,7 @@ def main(argv=None) -> int:
             raise config.ConfigError(
                 f"environment variable {env_name} is not set (use --dry-run to skip Slack)"
             )
-    except config.ConfigError as exc:
+    except (config.ConfigError, ValueError, RuntimeError) as exc:
         print(f"config error: {exc}", file=sys.stderr)
         return 2
 

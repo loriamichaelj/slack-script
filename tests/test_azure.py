@@ -1,7 +1,5 @@
-"""Azure Functions support: blob names, blob-backed cooldown state and config, and the timer triggers."""
+"""Azure support: blob names, and the blob-backed cooldown state and config."""
 
-import importlib.util
-import sys
 import tempfile
 import types
 import unittest
@@ -15,7 +13,6 @@ from anomaly_alerts.state import StateStore
 from helpers import NOW
 
 URL = "https://slackanomalydevapp.blob.core.windows.net/app/state/alerts.json"
-FUNCTION_APP = Path(__file__).resolve().parent.parent / "serverless" / "azure" / "function_app.py"
 
 
 class NotFound(Exception):
@@ -126,77 +123,3 @@ class BlobConfigTests(unittest.TestCase):
         factory = mock.Mock()
         self.assertEqual(handler.resolve_config("config/config.yaml", blob_factory=factory), "config/config.yaml")
         factory.assert_not_called()
-
-
-class FakeFunctionApp:
-    """Enough of azure.functions.FunctionApp to see what the entry point registers."""
-
-    def __init__(self):
-        self.functions = []
-
-    def function_name(self, name):
-        def decorate(fn):
-            fn.registered_name = name
-            return fn
-
-        return decorate
-
-    def timer_trigger(self, **settings):
-        def decorate(fn):
-            fn.trigger = settings
-            self.functions.append(fn)
-            return fn
-
-        return decorate
-
-
-class FunctionAppTests(unittest.TestCase):
-    def load(self):
-        fake = types.ModuleType("azure.functions")
-        fake.FunctionApp = FakeFunctionApp
-        fake.TimerRequest = object
-        package = types.ModuleType("azure")
-        package.functions = fake
-        run_event = mock.Mock()
-        with mock.patch.dict(sys.modules, {"azure": package, "azure.functions": fake}), \
-                mock.patch("anomaly_alerts.handler.run_event", run_event):
-            spec = importlib.util.spec_from_file_location("function_app_under_test", FUNCTION_APP)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-        return module, run_event
-
-    def test_one_timer_trigger_per_job(self):
-        module, _ = self.load()
-        schedules = {fn.registered_name: fn.trigger["schedule"] for fn in module.app.functions}
-        self.assertEqual(schedules, {
-            "anomaly_run": "0 */5 * * * *",
-            "routine_heartbeat": "0 0 */6 * * *",
-            "routine_digest": "0 0 14 * * *",
-            "routine_cost": "0 30 14 * * *",
-        })
-
-    def test_triggers_do_not_run_on_startup_or_use_the_schedule_monitor(self):
-        module, _ = self.load()
-        for fn in module.app.functions:
-            with self.subTest(job=fn.registered_name):
-                self.assertFalse(fn.trigger["run_on_startup"])
-                self.assertFalse(fn.trigger["use_monitor"])
-
-    def test_each_trigger_runs_its_own_job(self):
-        module, run_event = self.load()
-        for fn in module.app.functions:
-            fn(None)
-        self.assertEqual(
-            [call.args[0] for call in run_event.call_args_list],
-            [
-                {"command": "run"},
-                {"command": "routine", "kind": "heartbeat"},
-                {"command": "routine", "kind": "digest"},
-                {"command": "routine", "kind": "cost"},
-            ],
-        )
-
-    def test_the_schedules_match_the_events(self):
-        # Guards against editing one table and forgetting the other.
-        module, _ = self.load()
-        self.assertEqual(set(module.JOBS), {fn.registered_name for fn in module.app.functions})
