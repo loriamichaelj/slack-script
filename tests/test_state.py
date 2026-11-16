@@ -73,3 +73,60 @@ class StateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakeS3:
+    """Just enough of a boto3 S3 client for the state backend."""
+
+    class exceptions:
+        class NoSuchKey(Exception):
+            pass
+
+        class ClientError(Exception):
+            pass
+
+    def __init__(self):
+        self.objects = {}
+
+    def get_object(self, Bucket, Key):
+        if (Bucket, Key) not in self.objects:
+            raise self.exceptions.NoSuchKey()
+        import io
+
+        return {"Body": io.BytesIO(self.objects[(Bucket, Key)])}
+
+    def put_object(self, Bucket, Key, Body, ContentType):
+        self.objects[(Bucket, Key)] = Body
+
+    def head_object(self, Bucket, Key):
+        if (Bucket, Key) not in self.objects:
+            raise self.exceptions.ClientError()
+        return {"LastModified": NOW}
+
+
+class S3StateTests(unittest.TestCase):
+    def store(self, fake):
+        s = StateStore("s3://bkt/state/alerts.json", 3600)
+        s._backend._client = fake
+        s.load()
+        return s
+
+    def test_round_trip_through_s3(self):
+        fake = FakeS3()
+        s = self.store(fake)
+        self.assertIsNone(s.last_saved())
+        s.record("fp", "warning", NOW)
+        s.save(NOW)
+        self.assertIn(("bkt", "state/alerts.json"), fake.objects)
+        again = self.store(fake)
+        self.assertFalse(again.allow("fp", "warning", NOW + timedelta(minutes=5)))
+        self.assertEqual(again.last_saved(), NOW)
+
+    def test_unreadable_s3_state_does_not_stop_alerting(self):
+        fake = FakeS3()
+        fake.objects[("bkt", "state/alerts.json")] = b"not json"
+        self.assertTrue(self.store(fake).allow("fp", "warning", NOW))
+
+    def test_bad_s3_uri_is_rejected(self):
+        with self.assertRaises(ValueError):
+            StateStore("s3://bucket-only", 3600)
