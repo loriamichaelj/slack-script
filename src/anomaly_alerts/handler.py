@@ -4,6 +4,7 @@ Event: {"command": "run"|"routine", "kind": "heartbeat"|"digest"|"cost", "dry_ru
 
 Environment:
   ANOMALY_CONFIG     path to the config file, or s3://bucket/key to download it at start
+  LOG_LEVEL          DEBUG, INFO (default), WARNING or ERROR
   <NAME>_SECRET_ID   id of a Secrets Manager secret whose value becomes the variable <NAME>,
                      for example SLACK_WEBHOOK_URL_SECRET_ID=slack-webhook sets SLACK_WEBHOOK_URL.
                      A variable that is already set is left alone.
@@ -60,8 +61,17 @@ def resolve_config(path: str, client_factory=_boto3_client, destination: str = _
     return destination
 
 
+def configure_logging(environ=None) -> None:
+    """Lambda installs its own log handler at WARNING before this code runs, which makes
+    the CLI's logging.basicConfig do nothing. Set the level here so the run summary shows."""
+    environ = os.environ if environ is None else environ
+    level = logging.getLevelName(str(environ.get("LOG_LEVEL", "INFO")).upper())
+    logging.getLogger().setLevel(level if isinstance(level, int) else logging.INFO)
+
+
 def lambda_handler(event, context):
     event = event or {}
+    configure_logging()
     load_secrets()
     config = resolve_config(os.environ.get("ANOMALY_CONFIG", "config/config.yaml"))
     argv = [event.get("command", "run"), "--config", config]

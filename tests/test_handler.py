@@ -49,6 +49,38 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(argv[2], "/var/task/config.yaml")
 
 
+class LoggingTests(unittest.TestCase):
+    def setUp(self):
+        import logging
+
+        root = logging.getLogger()
+        self.addCleanup(root.setLevel, root.level)
+        root.setLevel(logging.WARNING)  # what Lambda starts with
+
+    def level(self):
+        import logging
+
+        return logging.getLogger().level
+
+    def test_info_by_default(self):
+        import logging
+
+        handler.configure_logging({})
+        self.assertEqual(self.level(), logging.INFO)
+
+    def test_level_comes_from_the_environment(self):
+        import logging
+
+        handler.configure_logging({"LOG_LEVEL": "debug"})
+        self.assertEqual(self.level(), logging.DEBUG)
+
+    def test_unknown_level_falls_back_to_info(self):
+        import logging
+
+        handler.configure_logging({"LOG_LEVEL": "loud"})
+        self.assertEqual(self.level(), logging.INFO)
+
+
 class SecretTests(unittest.TestCase):
     def test_secret_ids_become_variables(self):
         env = {"SLACK_WEBHOOK_URL_SECRET_ID": "slack-webhook", "OTHER": "x"}
