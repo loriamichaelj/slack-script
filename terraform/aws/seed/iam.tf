@@ -1,6 +1,7 @@
 # seed-admin manages this directory, which creates IAM roles and the OIDC provider,
 # so it needs administrator rights. Only the SEED environment (reviewer, dev branch) can assume it.
 resource "aws_iam_role_policy_attachment" "seed_admin" {
+  # checkov:skip=CKV_AWS_274: the seed creates IAM roles and the OIDC provider, which needs administrator rights; only the SEED environment can assume this role
   role       = aws_iam_role.github["seed-admin"].name
   policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
 }
@@ -35,6 +36,7 @@ resource "aws_iam_role_policy_attachment" "runtime_logs" {
 }
 
 data "aws_iam_policy_document" "runtime" {
+  # checkov:skip=CKV_AWS_356: CloudWatch metric reads, Cost Explorer and Organizations reads do not support resource-level permissions
   statement {
     sid = "ReadMetrics"
     actions = [
@@ -81,6 +83,10 @@ resource "aws_iam_role_policy_attachment" "runtime" {
 # dev-deployer applies and destroys terraform/aws/dev: Lambda, its schedules, the app
 # bucket, logs and the roles those need. IAM is limited to names under this app.
 data "aws_iam_policy_document" "deployer" {
+  # checkov:skip=CKV_AWS_109: role and policy management is limited to names under slack-anomaly-*
+  # checkov:skip=CKV_AWS_110: iam:PassRole is limited to the runtime role and IAM writes to slack-anomaly-* names
+  # checkov:skip=CKV_AWS_111: writes are limited to this app's Lambda, schedules, buckets and roles
+  # checkov:skip=CKV_AWS_356: Lambda, EventBridge and log actions are managed by name patterns the plan cannot know in advance
   statement {
     sid = "Workloads"
     actions = [
@@ -95,7 +101,7 @@ data "aws_iam_policy_document" "deployer" {
 
   statement {
     sid       = "AppBuckets"
-    actions   = ["s3:*"]
+    actions   = ["s3:CreateBucket", "s3:DeleteBucket", "s3:Get*", "s3:Put*", "s3:List*", "s3:DeleteObject*"]
     resources = ["arn:aws:s3:::${var.name_prefix}-*", "arn:aws:s3:::${var.name_prefix}-*/*"]
   }
 

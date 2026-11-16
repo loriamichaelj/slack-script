@@ -8,6 +8,9 @@ locals {
 }
 
 resource "aws_s3_bucket" "state" {
+  # checkov:skip=CKV2_AWS_6: the public access block is a companion resource on the same for_each keys, which checkov cannot link
+  # checkov:skip=CKV_AWS_21: versioning is a companion resource on the same for_each keys, which checkov cannot link
+  # checkov:skip=CKV2_AWS_61: the lifecycle rule is a companion resource on the same for_each keys, which checkov cannot link
   # checkov:skip=CKV_AWS_18: access logging needs a separate log bucket, which is not worth it for a single-user state bucket
   # checkov:skip=CKV_AWS_144: cross-region replication is not worth it for dev state
   # checkov:skip=CKV2_AWS_62: no event notifications are needed on a state bucket
@@ -34,6 +37,7 @@ resource "aws_s3_bucket_versioning" "state" {
   }
 }
 
+#trivy:ignore:AWS-0132
 resource "aws_s3_bucket_server_side_encryption_configuration" "state" {
   for_each = aws_s3_bucket.state
 
