@@ -1,7 +1,8 @@
 """Dedup and cooldown, kept in a small JSON document keyed by anomaly fingerprint.
 
-The document lives in a local file, or in an S3 object when the location is `s3://bucket/key`
-(for hosts with no mounted disk, such as Lambda).
+The document lives in a local file, in an S3 object when the location is `s3://bucket/key`,
+or in an Azure blob when it is `https://<account>.blob.core.windows.net/<container>/<path>`
+(for hosts with no mounted disk, such as Lambda and Azure Functions).
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from . import azureblob
 from .models import SEVERITY_RANK
 
 log = logging.getLogger(__name__)
@@ -89,9 +91,45 @@ class _S3Backend:
             return None
 
 
+class _BlobBackend:
+    def __init__(self, url: str):
+        azureblob.parse(url)  # reject a bad URL up front
+        self.url = url
+        self._client = None
+
+    def __str__(self) -> str:
+        return self.url
+
+    def _blob(self):
+        if self._client is None:
+            self._client = azureblob.client(self.url)
+        return self._client
+
+    def read(self) -> str | None:
+        try:
+            return self._blob().download_blob().readall().decode()
+        except Exception as exc:  # noqa: BLE001
+            if azureblob.is_not_found(exc):
+                return None
+            raise
+
+    def write(self, text: str) -> None:
+        self._blob().upload_blob(text.encode(), overwrite=True)
+
+    def modified(self) -> datetime | None:
+        try:
+            return self._blob().get_blob_properties().last_modified
+        except Exception as exc:  # noqa: BLE001
+            if azureblob.is_not_found(exc):
+                return None
+            raise
+
+
 def _backend(location: str | Path):
     if isinstance(location, str) and location.startswith("s3://"):
         return _S3Backend(location)
+    if azureblob.is_blob_url(location):
+        return _BlobBackend(location)
     return _FileBackend(Path(location))
 
 

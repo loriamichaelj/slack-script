@@ -1,9 +1,11 @@
-"""AWS Lambda entry point. The event picks the job; the environment says where things are.
+"""Entry point for AWS Lambda and Azure Functions. The event picks the job; the environment
+says where things are. Lambda calls lambda_handler, and the Azure timer triggers call run_event.
 
 Event: {"command": "run"|"routine", "kind": "heartbeat"|"digest"|"cost", "dry_run": false}
 
 Environment:
-  ANOMALY_CONFIG     path to the config file, or s3://bucket/key to download it at start
+  ANOMALY_CONFIG     path to the config file, or s3://bucket/key or an Azure blob URL
+                     (https://<account>.blob.core.windows.net/<container>/<blob>) to download it at start
   LOG_LEVEL          DEBUG, INFO (default), WARNING or ERROR
   <NAME>_SECRET_ID   id of a Secrets Manager secret whose value becomes the variable <NAME>,
                      for example SLACK_WEBHOOK_URL_SECRET_ID=slack-webhook sets SLACK_WEBHOOK_URL.
@@ -15,7 +17,7 @@ from __future__ import annotations
 import logging
 import os
 
-from . import cli
+from . import azureblob, cli
 
 log = logging.getLogger(__name__)
 
@@ -50,8 +52,14 @@ def load_secrets(environ=None, client_factory=_boto3_client) -> list[str]:
     return sorted(wanted)
 
 
-def resolve_config(path: str, client_factory=_boto3_client, destination: str = _DOWNLOADED_CONFIG) -> str:
-    """A local path is used as it is. An s3:// URI is downloaded and its local copy returned."""
+def resolve_config(
+    path: str, client_factory=_boto3_client, destination: str = _DOWNLOADED_CONFIG, blob_factory=azureblob.client
+) -> str:
+    """A local path is used as it is. An s3:// URI or an Azure blob URL is downloaded and its local copy returned."""
+    if azureblob.is_blob_url(path):
+        with open(destination, "wb") as fh:
+            fh.write(blob_factory(path).download_blob().readall())
+        return destination
     if not path.startswith("s3://"):
         return path
     bucket, _, key = path.removeprefix("s3://").partition("/")
@@ -70,6 +78,11 @@ def configure_logging(environ=None) -> None:
 
 
 def lambda_handler(event, context):
+    return run_event(event)
+
+
+def run_event(event) -> dict:
+    """Run the job the event names. A failure raises, so the host records it."""
     event = event or {}
     configure_logging()
     load_secrets()
