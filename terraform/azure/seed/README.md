@@ -23,7 +23,7 @@ repo:loriamichaelj@165821667/slack-script@1437191668:environment:<NAME>
 | --- | --- | --- | --- |
 | `SEED` | `seed-admin` | Owner on the subscription | applying this directory |
 | `DEV` | `dev-deployer` | Contributor and RBAC Administrator on `rg-slack-anomaly-dev` only, and Managed Identity Operator on the one runtime identity | applying `terraform/azure/dev` |
-| `CI` | `tf-planner` | Reader on the subscription, read of the directory's apps, blob reader on the state | planning pull requests |
+| `CI` | `tf-planner` | Reader on the subscription, read of the directory's apps, blob reader on the state, and listing job secrets in the dev group | planning pull requests |
 | `CI` | `dev-deployer` | as above | destroying `terraform/azure/dev` |
 
 Azure roles attach to a principal, so each identity is its own app registration, and each trusts only its own environments. `seed-admin` has Owner because this directory creates role assignments.

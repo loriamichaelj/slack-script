@@ -13,6 +13,27 @@ resource "azurerm_role_assignment" "planner_reads" {
   principal_id         = azuread_service_principal.github["tf-planner"].object_id
 }
 
+# Reader cannot list a job's secrets, which the provider does on every refresh once a job exists.
+# This role has that one action, on the dev group only. For these jobs the list holds secret
+# names and Key Vault references, and no values.
+resource "azurerm_role_definition" "jobs_plan_reader" {
+  name        = "anomaly-jobs-plan-reader"
+  scope       = azurerm_resource_group.dev.id
+  description = "List the secrets of Container Apps jobs, so a read-only plan can refresh them."
+
+  permissions {
+    actions = ["Microsoft.App/jobs/listSecrets/action"]
+  }
+
+  assignable_scopes = [azurerm_resource_group.dev.id]
+}
+
+resource "azurerm_role_assignment" "planner_lists_job_secrets" {
+  scope              = azurerm_resource_group.dev.id
+  role_definition_id = azurerm_role_definition.jobs_plan_reader.role_definition_resource_id
+  principal_id       = azuread_service_principal.github["tf-planner"].object_id
+}
+
 # dev-deployer can read the subscription, but only change things inside the dev group,
 # where it also assigns roles to what DEV creates (the Function's access to storage).
 resource "azurerm_role_assignment" "deployer_reads" {
