@@ -80,7 +80,7 @@ jobs:
             exit 0
           fi
           gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
-          docker build -t "$image" .
+          docker build --target cli --build-arg EXTRAS=gcp -t "$image" .
           docker push "$image"
 
       - name: Point the jobs at the image
