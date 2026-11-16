@@ -7,7 +7,7 @@ GitHub Actions for this repo, the same on every cloud.
 | File | Name | Runs | Does |
 | --- | --- | --- | --- |
 | `ci-tests.yml` | ci tests | pull request | `pytest` on Python 3.11 and 3.12 |
-| `ci-security.yml` | ci security | pull request | Trivy and Checkov on `terraform/`, Trivy on dependencies and secrets |
+| `ci-security.yml` | ci security | pull request | Trivy and Checkov on `terraform/`, Trivy on dependencies and secrets, and Trivy on each cloud's container image as built |
 | `tf-plan.yml` | tf plan | pull request touching `terraform/**` | read-only plan of every root, on every cloud |
 | `tf-apply.yml` | tf apply | push to `dev`, or by hand | applies the roots that changed |
 | `tf-destroy.yml` | tf destroy | by hand only | destroys one workload root |
