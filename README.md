@@ -7,7 +7,7 @@ Watches metrics on AWS, Azure and GCP and posts a Slack alert when one looks wro
 ```bash
 pip install -e ".[all]"                          # or .[aws], .[azure], .[gcp]
 cp config/config.example.yaml config/config.yaml # list your metrics
-cp .env.example .env                             # set SLACK_WEBHOOK_URL
+echo "SLACK_WEBHOOK_URL=<your Slack webhook URL>" > .env  # also SLACK_ROUTINE_WEBHOOK_URL, optional
 anomaly-alerts --config config/config.yaml --dry-run
 ```
 

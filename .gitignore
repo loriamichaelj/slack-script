@@ -1,4 +1,6 @@
-# Runtime state
+# Local secrets and state
+.env
+.env.*
 .state/
 
 # Python

@@ -8,7 +8,7 @@ The simplest setup: a laptop or VM with read-only cloud credentials.
 python3 -m venv .venv
 .venv/bin/pip install -e ".[all]"      # or just .[aws], .[azure], .[gcp]
 cp config/config.example.yaml config/config.yaml
-cp .env.example .env                   # then set SLACK_WEBHOOK_URL
+echo "SLACK_WEBHOOK_URL=<your Slack webhook URL>" > .env
 ```
 
 ## Try it first
