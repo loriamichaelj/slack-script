@@ -1,17 +1,8 @@
-# The Lambda starts with a placeholder. The deploy-aws-dev workflow uploads the real
-# code, and Terraform ignores the code after creation, so deploys and applies never
-# undo each other.
-data "archive_file" "placeholder" {
-  type        = "zip"
-  output_path = "${path.module}/.terraform/placeholder.zip"
-
-  source {
-    filename = "anomaly_alerts/handler.py"
-    content  = <<-EOT
-      def lambda_handler(event, context):
-          return {"placeholder": True}
-    EOT
-  }
+# The function runs a container image from the ECR repository SEED created. It starts on the
+# latest image, and the deploy-aws-dev workflow points it at each new commit's image.
+# Terraform ignores the image after creation, so deploys and applies never undo each other.
+data "aws_ecr_repository" "app" {
+  name = "anomaly-alerts"
 }
 
 resource "aws_cloudwatch_log_group" "lambda" {
@@ -30,14 +21,11 @@ resource "aws_lambda_function" "app" {
   # checkov:skip=CKV_AWS_272: code signing is not worth it for a single-owner dev function
   function_name = local.function_name
   role          = local.runtime_role
-  runtime       = "python3.12"
-  architectures = ["x86_64"] # matches scripts/build-lambda.sh
-  handler       = "anomaly_alerts.handler.lambda_handler"
+  package_type  = "Image"
+  image_uri     = "${data.aws_ecr_repository.app.repository_url}:latest"
+  architectures = ["x86_64"] # the CI runners build x86_64 images
   timeout       = 300
   memory_size   = 256
-
-  filename         = data.archive_file.placeholder.output_path
-  source_code_hash = data.archive_file.placeholder.output_base64sha256
 
   environment {
     variables = {
@@ -48,7 +36,7 @@ resource "aws_lambda_function" "app" {
   }
 
   lifecycle {
-    ignore_changes = [filename, source_code_hash]
+    ignore_changes = [image_uri]
   }
 
   depends_on = [aws_cloudwatch_log_group.lambda]
