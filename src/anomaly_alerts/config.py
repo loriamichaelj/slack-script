@@ -64,7 +64,7 @@ class CostConfig:
 @dataclass(frozen=True)
 class Config:
     slack: SlackConfig
-    state_path: Path
+    state_path: Path | str  # a str only for s3://bucket/key
     actions_path: Path | None
     metrics: list[MetricSpec]
     cost: CostConfig | None = None  # only routine cost reports need it
@@ -216,6 +216,11 @@ def _build_cost(raw) -> CostConfig:
     return CostConfig(settings, accounts)
 
 
+def _state_location(value) -> Path | str:
+    text = str(value)
+    return text if text.startswith("s3://") else Path(text)
+
+
 def load(path: str | Path) -> Config:
     path = Path(path)
     try:
@@ -258,7 +263,7 @@ def load(path: str | Path) -> Config:
     actions_file = raw.get("actions_file")
     return Config(
         slack=slack,
-        state_path=Path((raw.get("state") or {}).get("path", ".state/alerts.json")),
+        state_path=_state_location((raw.get("state") or {}).get("path", ".state/alerts.json")),
         actions_path=(path.parent / actions_file) if actions_file else None,
         metrics=metrics,
         cost=_build_cost(raw["cost"]) if raw.get("cost") is not None else None,
