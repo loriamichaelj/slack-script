@@ -1,7 +1,8 @@
 [
   { "cloud": "gcp", "root": "seed", "env": "SEED", "backend": { "bucket": "slack-anomaly-dev-seed-tfstate" }, "plan_identity": "tf-planner", "apply_identity": "seed-admin" },
-  { "cloud": "gcp", "root": "dev",  "env": "DEV",  "backend": { "bucket": "slack-anomaly-dev-dev-tfstate" },  "plan_identity": "tf-planner", "apply_identity": "dev-deployer" },
+  { "cloud": "gcp", "root": "dev", "env": "DEV", "backend": { "bucket": "slack-anomaly-dev-dev-tfstate" }, "plan_identity": "tf-planner", "apply_identity": "dev-deployer" },
   { "cloud": "aws", "root": "seed", "env": "SEED", "backend": { "bucket": "slack-anomaly-dev-seed-tfstate" }, "plan_identity": "tf-planner", "apply_identity": "seed-admin" },
-  { "cloud": "aws", "root": "dev",  "env": "DEV",  "backend": { "bucket": "slack-anomaly-dev-dev-tfstate" },  "plan_identity": "tf-planner", "apply_identity": "dev-deployer" },
-  { "cloud": "azure", "root": "seed", "env": "SEED", "apply": false, "backend": { "resource_group_name": "rg-slack-anomaly-seed", "storage_account_name": "slackanomalydevtfstate", "container_name": "seed-tfstate" }, "plan_identity": "tf-planner", "apply_identity": "seed-admin" }
+  { "cloud": "aws", "root": "dev", "env": "DEV", "backend": { "bucket": "slack-anomaly-dev-dev-tfstate" }, "plan_identity": "tf-planner", "apply_identity": "dev-deployer" },
+  { "cloud": "azure", "root": "seed", "env": "SEED", "apply": false, "backend": { "resource_group_name": "rg-slack-anomaly-seed", "storage_account_name": "slackanomalydevtfstate", "container_name": "seed-tfstate" }, "plan_identity": "tf-planner", "apply_identity": "seed-admin" },
+  { "cloud": "azure", "root": "dev", "env": "DEV", "backend": { "resource_group_name": "rg-slack-anomaly-seed", "storage_account_name": "slackanomalydevtfstate", "container_name": "dev-tfstate" }, "plan_identity": "tf-planner", "apply_identity": "dev-deployer" }
 ]

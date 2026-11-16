@@ -1,0 +1,117 @@
+# One Container Apps job per command, each on its own cron schedule, like the Cloud Run jobs
+# on GCP. All four run the same image, from GitHub's container registry. They start on a
+# public placeholder, and the deploy-azure-dev workflow points them at each commit's image.
+# Terraform ignores the image after creation, so deploys and applies never undo each other.
+locals {
+  # Cron is in UTC: 14:00 and 14:30 UTC are 9:00 and 9:30 in New York in winter.
+  jobs = {
+    "anomaly-run" = {
+      schedule = "*/5 * * * *"
+      args     = ["--config", "inline"]
+    }
+    "routine-heartbeat" = {
+      schedule = "0 */6 * * *"
+      args     = ["routine", "--kind", "heartbeat", "--config", "inline"]
+    }
+    "routine-digest" = {
+      schedule = "0 14 * * *"
+      args     = ["routine", "--kind", "digest", "--config", "inline"]
+    }
+    "routine-cost" = {
+      schedule = "30 14 * * *"
+      args     = ["routine", "--kind", "cost", "--config", "inline"]
+    }
+  }
+
+  # The webhook URLs are read from Key Vault by the jobs' managed identity, so they never
+  # appear in Terraform or in state. The versionless address always means the latest value.
+  webhook_secrets = {
+    "slack-webhook"         = "SLACK_WEBHOOK_URL"
+    "slack-routine-webhook" = "SLACK_ROUTINE_WEBHOOK_URL"
+  }
+
+  config_b64 = base64encode(templatefile("${path.module}/config.yaml.tftpl", {
+    state_url          = "${azurerm_storage_account.app.primary_blob_endpoint}${azurerm_storage_container.app.name}/state/alerts.json"
+    state_account_id   = azurerm_storage_account.app.id
+    subscription_scope = data.azurerm_subscription.current.id
+    budget             = var.budget
+  }))
+}
+
+resource "azurerm_container_app_environment" "app" {
+  # checkov:skip=CKV_AZURE_232: zone redundancy costs more, and a missed 5 minute run is picked up by the next one
+  # checkov:skip=CKV_AZURE_233: an internal-only environment needs a network, which costs money and is not needed
+  name                       = "cae-slack-anomaly-dev"
+  resource_group_name        = local.rg
+  location                   = local.location
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.app.id
+  tags                       = local.tags
+}
+
+resource "azurerm_container_app_job" "app" {
+  # checkov:skip=CKV_AZURE_237: no public ingress exists, because a job has no endpoint
+  for_each = local.jobs
+
+  name                         = each.key
+  resource_group_name          = local.rg
+  location                     = local.location
+  container_app_environment_id = azurerm_container_app_environment.app.id
+  tags                         = local.tags
+
+  # A retry could post the same alert twice. The next run picks up what was missed.
+  replica_timeout_in_seconds = 300
+  replica_retry_limit        = 0
+
+  schedule_trigger_config {
+    cron_expression          = each.value.schedule
+    parallelism              = 1
+    replica_completion_count = 1
+  }
+
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [data.azurerm_user_assigned_identity.runtime.id]
+  }
+
+  dynamic "secret" {
+    for_each = local.webhook_secrets
+    content {
+      name                = secret.key
+      identity            = data.azurerm_user_assigned_identity.runtime.id
+      key_vault_secret_id = "${data.azurerm_key_vault.webhooks.vault_uri}secrets/${secret.key}"
+    }
+  }
+
+  template {
+    container {
+      name   = "anomaly-alerts"
+      image  = "mcr.microsoft.com/k8se/quickstart-jobs:latest"
+      cpu    = 0.25
+      memory = "0.5Gi"
+      args   = each.value.args
+
+      # The runtime identity, for the blob state and the Azure Monitor and cost APIs.
+      env {
+        name  = "AZURE_CLIENT_ID"
+        value = data.azurerm_user_assigned_identity.runtime.client_id
+      }
+
+      env {
+        name  = "ANOMALY_CONFIG_B64"
+        value = local.config_b64
+      }
+
+      dynamic "env" {
+        for_each = local.webhook_secrets
+        content {
+          name        = env.value
+          secret_name = env.key
+        }
+      }
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [template[0].container[0].image]
+  }
+}

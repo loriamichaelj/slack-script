@@ -8,7 +8,7 @@ on:
       target:
         description: Root to destroy
         type: choice
-        options: [gcp/dev, aws/dev]
+        options: [gcp/dev, aws/dev, azure/dev]
       confirm:
         description: Type the root again to confirm, for example gcp/dev
         required: true

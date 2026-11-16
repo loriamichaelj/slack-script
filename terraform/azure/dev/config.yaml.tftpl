@@ -1,0 +1,45 @@
+# Rendered by terraform/azure/dev into every job's ANOMALY_CONFIG_B64 setting, so a change
+# here applies on the next apply with no image deploy. Edit the template, not the setting:
+# the next apply overwrites it. Webhook URLs come from Key Vault, never from this file.
+slack:
+  webhook_env: SLACK_WEBHOOK_URL
+  routine_webhook_env: SLACK_ROUTINE_WEBHOOK_URL
+  cooldown_minutes: 60
+  max_alerts_per_run: 10
+
+state:
+  path: ${state_url}
+
+actions_file: /app/config/actions.yaml
+
+defaults:
+  lookback: 24h
+  period: 5m
+  detector: mad
+  min_points: 30
+  sustained_points: 3
+
+# Keep this list to the metrics that would change what you do. It starts with a dead-man's
+# switch: the alert job reads and writes its cooldown state in this storage account every
+# 5 minutes, so the account should always see transactions. If that drops to zero for 15
+# minutes, the schedule has stopped.
+metrics:
+  - name: state-account-transactions
+    provider: azure
+    resource_id: ${state_account_id}
+    metric: Transactions
+    aggregation: total
+    category: availability
+    direction: drop
+    fill_missing: zero
+    min_abs_change: 1
+
+# The report shows month to date against a monthly budget, and warns at 80% or when the
+# month is on pace to pass it.
+cost:
+  lag_days: 1
+  accounts:
+    - name: azure-sub
+      provider: azure
+      scope: ${subscription_scope}
+      budget: ${budget}
