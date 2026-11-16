@@ -160,7 +160,7 @@ This repo's own deployment runs on GCP Cloud Run: see [terraform/gcp/dev](terraf
 
 Terraform lives in one directory per cloud and environment. `seed` creates what everything else needs (state buckets, GitHub OIDC identities, webhook secrets), `dev` creates the running app, and `org` (GCP only) sets up org-wide metrics and is applied by hand. Every resource gets the tags or labels `project`, `app`, `env`, `managed_by` and `repo`.
 
-GitHub Actions plan every Terraform root on pull requests and apply them on merge, signing in to each cloud with OIDC and no stored keys. A cloud's workflows stay switched off until its seed has been applied once from a laptop. See [.github/README.md](.github/README.md) for the workflows, naming conventions and how to add a root or a cloud.
+GitHub Actions plan every Terraform root on pull requests and apply them on merge, signing in to each cloud with OIDC and no stored keys. A cloud's workflows stay switched off until its seed has been applied once from a laptop. See [.github/CICD.md](.github/CICD.md) for the workflows, naming conventions and how to add a root or a cloud.
 
 ## Development
 
