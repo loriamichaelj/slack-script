@@ -75,7 +75,7 @@ The vault exists but holds no secrets, so no webhook URL ever lands in Terraform
 
 ```bash
 az role assignment create --assignee "$(az ad signed-in-user show --query id -o tsv)" \
-  --role "Key Vault Secrets Officer" --scope "$(az keyvault show -n kv-slack-anomaly-dev --query id -o tsv)"
+  --role "Key Vault Secrets Officer" --scope "$(az keyvault show -n kv-slack-anomaly-dev -g rg-slack-anomaly-seed --query id -o tsv)"
 
 for s in slack-webhook slack-routine-webhook; do
   aws secretsmanager get-secret-value --secret-id "$s" --query SecretString --output text \

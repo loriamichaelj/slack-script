@@ -1,0 +1,122 @@
+name: deploy azure dev
+
+# Builds the container image, pushes it to GitHub's container registry, and points the four
+# Container Apps jobs at it. Terraform creates the jobs on a placeholder image and ignores the
+# image after that, so the two never undo each other.
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "src/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "pyproject.toml"
+      - "config/actions.yaml"
+      - ".github/workflows/deploy-azure-dev.yml"
+  # After tf apply, so freshly created jobs get the real image.
+  workflow_run:
+    workflows: ["tf apply"]
+    types: [completed]
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-azure-dev
+  cancel-in-progress: false
+
+env:
+  RESOURCE_GROUP: rg-slack-anomaly-dev
+  JOBS: anomaly-run routine-heartbeat routine-digest routine-cost
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # DEV only allows the dev branch. It signs in as dev-deployer.
+    environment: DEV
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Log in to azure
+        id: login
+        uses: ./.github/actions/cloud-login
+        with:
+          cloud: azure
+          identity: dev-deployer
+          azure_tenant_id: ${{ vars.AZURE_TENANT_ID }}
+          azure_subscription_id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          azure_client_id_tf_planner: ${{ vars.AZURE_CLIENT_ID_TF_PLANNER }}
+          azure_client_id_seed_admin: ${{ vars.AZURE_CLIENT_ID_SEED_ADMIN }}
+          azure_client_id_dev_deployer: ${{ vars.AZURE_CLIENT_ID_DEV_DEPLOYER }}
+
+      # The jobs come from terraform/azure/dev.
+      - name: Check DEV exists
+        id: dev
+        if: steps.login.outputs.ready == 'true'
+        run: |
+          az extension add --name containerapp --only-show-errors
+          if az containerapp job show --name anomaly-run --resource-group "$RESOURCE_GROUP" >/dev/null 2>&1; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Deploy skipped: the DEV jobs do not exist yet. Apply terraform/azure/dev first."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The registry is GitHub's, so the workflow's own token can push. The label ties the package
+      # to this repository.
+      - name: Build and push the image
+        id: image
+        if: steps.dev.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          repo="${GITHUB_REPOSITORY,,}"
+          image="ghcr.io/${repo}/anomaly-alerts:sha-${GITHUB_SHA::12}"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          if docker manifest inspect "$image" >/dev/null 2>&1; then
+            echo "$image already exists"
+            exit 0
+          fi
+          docker build --target cli --build-arg EXTRAS=azure --provenance=false --sbom=false \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            -t "$image" .
+          docker push "$image"
+
+      # Azure pulls without credentials, so the package must be public. A new package starts
+      # private unless it inherits the repository's visibility, so check, and say so if not.
+      - name: Check Azure can pull the image
+        if: steps.image.outputs.image != ''
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: |
+          name="${IMAGE#ghcr.io/}"; repo="${name%%:*}"; tag="${name##*:}"
+          token=$(curl -fsS "https://ghcr.io/token?service=ghcr.io&scope=repository:${repo}:pull" | jq -r .token)
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" \
+            -H "Accept: application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
+            "https://ghcr.io/v2/${repo}/manifests/${tag}")
+          if [ "$code" != "200" ]; then
+            echo "::warning::The image is private (anonymous pull returned $code), so the jobs cannot start it. Make the package public once: github.com/${GITHUB_REPOSITORY_OWNER}?tab=packages, open anomaly-alerts, Package settings, Change visibility."
+          fi
+
+      - name: Point the jobs at the image
+        if: steps.dev.outputs.ready == 'true' && steps.image.outputs.image != ''
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: |
+          for job in $JOBS; do
+            az containerapp job update --name "$job" --resource-group "$RESOURCE_GROUP" --image "$IMAGE" --output none
+          done
+          echo "Deployed \`$IMAGE\` to: $JOBS" >> "$GITHUB_STEP_SUMMARY"

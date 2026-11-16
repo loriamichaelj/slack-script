@@ -12,7 +12,8 @@ GitHub Actions for this repo, the same on every cloud.
 | `tf-apply.yml` | tf apply | push to `dev`, or by hand | applies the roots that changed |
 | `tf-destroy.yml` | tf destroy | by hand only | destroys one workload root |
 | `deploy-gcp-dev.yml` | deploy gcp dev | app change, or after `tf apply` | builds the image and updates the Cloud Run jobs |
-| `deploy-aws-dev.yml` | deploy aws dev | app change, or after `tf apply` | builds the Lambda zip and uploads it |
+| `deploy-aws-dev.yml` | deploy aws dev | app change, or after `tf apply` | builds the Lambda image, pushes it to ECR and points the function at it |
+| `deploy-azure-dev.yml` | deploy azure dev | app change, or after `tf apply` | builds the image, pushes it to GitHub's registry and points the four Container Apps jobs at it |
 
 ## Naming
 

@@ -78,7 +78,8 @@ class SelectRootsTests(unittest.TestCase):
     def test_azure_needs_both_its_tenant_and_its_subscription(self):
         self.assertEqual(select("all", ONLY_READY="1", AZURE_TENANT_ID="t"), [])
         self.assertEqual(select("all", ONLY_READY="1", AZURE_SUBSCRIPTION_ID="s"), [])
-        self.assertEqual(select("all", ONLY_READY="1", AZURE_TENANT_ID="t", AZURE_SUBSCRIPTION_ID="s"), ["azure/seed"])
+        ready = select("all", ONLY_READY="1", AZURE_TENANT_ID="t", AZURE_SUBSCRIPTION_ID="s")
+        self.assertEqual(ready, [f"azure/{e['root']}" for e in registry() if e["cloud"] == "azure"])
 
     def test_roots_applied_by_hand_are_dropped_for_apply_only(self):
         ready = dict(ONLY_READY="1", AZURE_TENANT_ID="t", AZURE_SUBSCRIPTION_ID="s", AWS_ACCOUNT_ID="1")
