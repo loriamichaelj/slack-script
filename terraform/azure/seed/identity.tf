@@ -34,6 +34,12 @@ resource "azuread_application" "github" {
   # App registrations have no key-value tags, only labels, so the same set is written as key:value.
   tags = sort([for key, value in local.tags : "${key}:${value}"])
 
+  # The creator becomes the owner when this is first applied. After that, whoever runs a
+  # plan (you, or the read-only planner in CI) must not change it, so it is not managed.
+  lifecycle {
+    ignore_changes = [owners]
+  }
+
   dynamic "required_resource_access" {
     # The planner reads this directory's apps to plan the seed, so it needs Graph read.
     for_each = each.key == "tf-planner" ? [1] : []
@@ -53,6 +59,11 @@ resource "azuread_service_principal" "github" {
 
   client_id = each.value.client_id
   owners    = [data.azuread_client_config.current.object_id]
+
+  # Same as the application: set once at creation, never compared again.
+  lifecycle {
+    ignore_changes = [owners]
+  }
 }
 
 resource "azuread_application_federated_identity_credential" "github" {
