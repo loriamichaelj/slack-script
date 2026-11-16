@@ -1,5 +1,6 @@
 [
   { "cloud": "gcp", "root": "seed", "env": "SEED", "state": "slack-anomaly-dev-seed-tfstate", "plan_identity": "tf-planner", "apply_identity": "seed-admin" },
   { "cloud": "gcp", "root": "dev",  "env": "DEV",  "state": "slack-anomaly-dev-dev-tfstate",  "plan_identity": "tf-planner", "apply_identity": "dev-deployer" },
-  { "cloud": "aws", "root": "seed", "env": "SEED", "state": "slack-anomaly-dev-seed-tfstate", "plan_identity": "tf-planner", "apply_identity": "seed-admin" }
+  { "cloud": "aws", "root": "seed", "env": "SEED", "state": "slack-anomaly-dev-seed-tfstate", "plan_identity": "tf-planner", "apply_identity": "seed-admin" },
+  { "cloud": "aws", "root": "dev",  "env": "DEV",  "state": "slack-anomaly-dev-dev-tfstate",  "plan_identity": "tf-planner", "apply_identity": "dev-deployer" }
 ]
