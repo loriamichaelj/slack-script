@@ -30,6 +30,7 @@ provider "azurerm" {
   # The seed has the rights to register providers; DEV does not, so they are listed here.
   resource_provider_registrations = "none"
   resource_providers_to_register = [
+    "Microsoft.App",
     "Microsoft.Authorization",
     "Microsoft.CostManagement",
     "Microsoft.Insights",
@@ -37,7 +38,6 @@ provider "azurerm" {
     "Microsoft.ManagedIdentity",
     "Microsoft.OperationalInsights",
     "Microsoft.Storage",
-    "Microsoft.Web",
   ]
 }
 

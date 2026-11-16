@@ -22,7 +22,7 @@ repo:loriamichaelj@165821667/slack-script@1437191668:environment:<NAME>
 | GitHub environment | Identity | Rights | Used for |
 | --- | --- | --- | --- |
 | `SEED` | `seed-admin` | Owner on the subscription | applying this directory |
-| `DEV` | `dev-deployer` | Contributor and RBAC Administrator on `rg-slack-anomaly-dev` only | applying `terraform/azure/dev` |
+| `DEV` | `dev-deployer` | Contributor and RBAC Administrator on `rg-slack-anomaly-dev` only, and Managed Identity Operator on the one runtime identity | applying `terraform/azure/dev` |
 | `CI` | `tf-planner` | Reader on the subscription, read of the directory's apps, blob reader on the state | planning pull requests |
 | `CI` | `dev-deployer` | as above | destroying `terraform/azure/dev` |
 
