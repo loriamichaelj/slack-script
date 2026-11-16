@@ -1,5 +1,5 @@
 output "image_repository" {
-  description = "Where deploy-dev pushes images."
+  description = "Where deploy-gcp-dev pushes images."
   value       = local.image_repo
 }
 

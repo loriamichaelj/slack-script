@@ -43,7 +43,7 @@ resource "google_cloud_run_v2_job" "job" {
       max_retries           = 0 # a retry could post the same alert twice; the next run picks it up
 
       containers {
-        # Placeholder until the deploy-dev workflow pushes the real image. Terraform
+        # Placeholder until the deploy-gcp-dev workflow pushes the real image. Terraform
         # ignores the image after creation, so deploys and applies do not fight.
         image = "us-docker.pkg.dev/cloudrun/container/job:latest"
         args  = each.value.args

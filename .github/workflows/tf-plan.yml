@@ -1,0 +1,103 @@
+name: tf plan
+
+# Read-only plan of every Terraform root on every cloud, for pull requests. The roots
+# come from .github/terraform-roots.json. Each signs in as tf-planner.
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - "terraform/**"
+      - ".github/terraform-roots.json"
+      - ".github/actions/**"
+      - ".github/scripts/**"
+      - ".github/workflows/tf-plan.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tf-plan-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TF_IN_AUTOMATION: "true"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  select:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      roots: ${{ steps.roots.outputs.roots }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: roots
+        run: echo "roots=$(.github/scripts/select-roots.sh all)" >> "$GITHUB_OUTPUT"
+
+  plan:
+    name: plan ${{ matrix.cloud }}/${{ matrix.root }}
+    needs: select
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # CI requires a reviewer's approval before the job starts.
+    environment: CI
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.select.outputs.roots) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ./.github/actions/setup-terraform
+
+      # These checks need no cloud access, so they run before any seed exists.
+      - name: Format
+        working-directory: terraform/${{ matrix.cloud }}/${{ matrix.root }}
+        run: terraform fmt -check -recursive
+
+      - name: Validate
+        working-directory: terraform/${{ matrix.cloud }}/${{ matrix.root }}
+        run: |
+          terraform init -input=false -backend=false
+          terraform validate -no-color
+
+      - name: Log in to ${{ matrix.cloud }}
+        id: login
+        uses: ./.github/actions/cloud-login
+        with:
+          cloud: ${{ matrix.cloud }}
+          identity: ${{ matrix.plan_identity }}
+          gcp_workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+
+      # The planner cannot create state. With none yet, plan against an empty local
+      # state: everything shows as new, which is what the first apply would do.
+      - name: Init
+        if: steps.login.outputs.ready == 'true'
+        working-directory: terraform/${{ matrix.cloud }}/${{ matrix.root }}
+        run: |
+          if "$GITHUB_WORKSPACE/.github/scripts/state-exists.sh" "${{ matrix.cloud }}" "${{ matrix.state }}" "${{ matrix.root }}"; then
+            terraform init -input=false -reconfigure -backend-config="bucket=${{ matrix.state }}"
+          else
+            echo "::notice::No ${{ matrix.cloud }}/${{ matrix.root }} state yet: planning against an empty state, so every resource shows as new."
+            printf 'terraform {\n  backend "local" {}\n}\n' > backend_override.tf
+            terraform init -input=false -reconfigure
+          fi
+
+      # The planner cannot write to the state bucket, so the plan takes no lock.
+      - name: Plan
+        if: steps.login.outputs.ready == 'true'
+        working-directory: terraform/${{ matrix.cloud }}/${{ matrix.root }}
+        run: |
+          terraform plan -input=false -lock=false -no-color -out=tfplan
+          {
+            echo "### tf plan: ${{ matrix.cloud }}/${{ matrix.root }}"
+            echo '```'
+            terraform show -no-color tfplan | tail -c 60000
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

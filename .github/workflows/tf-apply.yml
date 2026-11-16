@@ -1,0 +1,106 @@
+name: tf apply
+
+# Applies the Terraform roots a push to dev changed, or one root picked by hand. The
+# roots come from .github/terraform-roots.json. SEED roots need a reviewer. The org
+# metrics scope (terraform/gcp/org) is not in the registry: it is applied locally.
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "terraform/**"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Root to apply
+        type: choice
+        options: [gcp/seed, gcp/dev, aws/seed]
+
+permissions:
+  contents: read
+
+env:
+  TF_IN_AUTOMATION: "true"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  select:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      roots: ${{ steps.roots.outputs.roots }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      # Roots of a cloud with no seed yet are dropped, so no approval is requested for them.
+      - id: roots
+        env:
+          ONLY_READY: "1"
+          BEFORE: ${{ github.event.before }}
+          TARGET: ${{ inputs.target }}
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+        run: |
+          if [ -n "$TARGET" ]; then
+            roots=$(.github/scripts/select-roots.sh target "$TARGET")
+          else
+            roots=$(.github/scripts/select-roots.sh changed)
+          fi
+          echo "roots=$roots" >> "$GITHUB_OUTPUT"
+          echo "Applying: $roots"
+
+  apply:
+    name: apply ${{ matrix.cloud }}/${{ matrix.root }}
+    needs: select
+    if: needs.select.outputs.roots != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # SEED and DEV only allow the dev branch; SEED also needs a reviewer.
+    environment: ${{ matrix.env }}
+    permissions:
+      contents: read
+      id-token: write
+    # Shared with tf destroy, so the two never run on the same root at once.
+    concurrency:
+      group: tf-state-${{ matrix.cloud }}-${{ matrix.root }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include: ${{ fromJSON(needs.select.outputs.roots) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ./.github/actions/setup-terraform
+
+      - name: Log in to ${{ matrix.cloud }}
+        uses: ./.github/actions/cloud-login
+        with:
+          cloud: ${{ matrix.cloud }}
+          identity: ${{ matrix.apply_identity }}
+          gcp_workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+
+      - name: Init
+        working-directory: terraform/${{ matrix.cloud }}/${{ matrix.root }}
+        run: terraform init -input=false -backend-config="bucket=${{ matrix.state }}"
+
+      - name: Plan
+        working-directory: terraform/${{ matrix.cloud }}/${{ matrix.root }}
+        run: |
+          terraform plan -input=false -no-color -out=tfplan
+          {
+            echo "### tf plan: ${{ matrix.cloud }}/${{ matrix.root }}"
+            echo '```'
+            terraform show -no-color tfplan | tail -c 60000
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Applies exactly the plan above.
+      - name: Apply
+        working-directory: terraform/${{ matrix.cloud }}/${{ matrix.root }}
+        run: terraform apply -input=false -no-color tfplan

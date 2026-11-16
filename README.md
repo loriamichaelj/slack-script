@@ -55,7 +55,7 @@ This repo's own deployment, on GCP. Each box is one Terraform root under `terraf
 ```mermaid
 %%{init: {"flowchart": {"padding": 24, "wrappingWidth": 400}}}%%
 flowchart LR
-  gh["GitHub Actions<br/>terraform plan,<br/>apply, destroy<br/>deploy dev"]
+  gh["GitHub Actions<br/>tf plan, apply,<br/>destroy<br/>deploy gcp dev"]
 
   subgraph project ["GCP project slack-anomaly-dev"]
     subgraph seed ["seed"]

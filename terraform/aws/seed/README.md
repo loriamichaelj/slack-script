@@ -50,13 +50,13 @@ Answer `yes` to the migration prompt, then delete the local `terraform.tfstate` 
 
 ## After the apply
 
-Copy these outputs into GitHub as variables (none are secrets):
+The `tf plan` and `tf apply` workflows take over from here. They sign in through the OIDC provider as the roles `tf-planner` and `seed-admin`, and build each role's ARN from its name, so no access keys or role ARNs are stored in GitHub. Set one repository variable to turn them on (the workflows skip AWS steps until it is set):
 
-| Output | Variable | Environments |
-| --- | --- | --- |
-| `seed_admin_role_arn` | `AWS_ROLE_ARN` | SEED |
-| `dev_deployer_role_arn` | `AWS_ROLE_ARN` | DEV and CI |
-| `tf_planner_role_arn` | `AWS_PLAN_ROLE_ARN` | CI |
+```bash
+gh variable set AWS_ACCOUNT_ID --body 370767313925
+```
+
+After that, any change to `terraform/aws/seed` goes through a pull request (plan, in the `CI` environment) and a merge to `dev` (apply, in the `SEED` environment, which needs a reviewer).
 
 Then add each webhook value by hand, so it never enters Terraform state:
 

@@ -52,14 +52,13 @@ Answer `yes` to the migration prompt, then delete the local `terraform.tfstate` 
 
 ## After the apply
 
-Copy these outputs into GitHub as variables (none are secrets). The provider is one repository variable; the workflows skip GCP steps until it is set. The service accounts are per environment:
+Set one repository variable, from the `workload_identity_provider` output. The `tf-*` and `deploy-*` workflows skip GCP steps until it is set:
 
-| Output | Variable | Environments |
-| --- | --- | --- |
-| `workload_identity_provider` | `GCP_WORKLOAD_IDENTITY_PROVIDER` | repository variable (same for all) |
-| `seed_admin_service_account` | `GCP_SERVICE_ACCOUNT` | SEED |
-| `dev_deployer_service_account` | `GCP_SERVICE_ACCOUNT` | DEV, CI |
-| `tf_planner_service_account` | `GCP_PLAN_SERVICE_ACCOUNT` | CI |
+```bash
+gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER --body "$(terraform output -raw workload_identity_provider)"
+```
+
+The workflows build each service account's address from its name (`tf-planner`, `seed-admin`, `dev-deployer`) and the project, so no per-environment variables are needed. The older `GCP_SERVICE_ACCOUNT` and `GCP_PLAN_SERVICE_ACCOUNT` variables are unused and can be deleted.
 
 ## Slack webhooks
 

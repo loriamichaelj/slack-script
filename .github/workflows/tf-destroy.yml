@@ -1,0 +1,89 @@
+name: tf destroy
+
+# Manual only. Tears down a workload root to stop its costs. SEED roots and the org
+# metrics scope are never destroyed here: SEED holds the state buckets and identities.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Root to destroy
+        type: choice
+        options: [gcp/dev]
+      confirm:
+        description: Type the root again to confirm, for example gcp/dev
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  TF_IN_AUTOMATION: "true"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  select:
+    # Only from the dev branch, and only when the confirmation matches.
+    if: github.ref == 'refs/heads/dev' && inputs.confirm == inputs.target
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      roots: ${{ steps.roots.outputs.roots }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: roots
+        env:
+          TARGET: ${{ inputs.target }}
+        run: echo "roots=$(.github/scripts/select-roots.sh target "$TARGET")" >> "$GITHUB_OUTPUT"
+
+  destroy:
+    name: destroy ${{ matrix.cloud }}/${{ matrix.root }}
+    needs: select
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # CI requires a reviewer's approval before the job starts. The apply identity of a
+    # dev root is dev-deployer, which is also the one that destroys it.
+    environment: CI
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: tf-state-${{ matrix.cloud }}-${{ matrix.root }}
+      cancel-in-progress: false
+    strategy:
+      matrix:
+        include: ${{ fromJSON(needs.select.outputs.roots) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ./.github/actions/setup-terraform
+
+      - name: Log in to ${{ matrix.cloud }}
+        uses: ./.github/actions/cloud-login
+        with:
+          cloud: ${{ matrix.cloud }}
+          identity: ${{ matrix.apply_identity }}
+          gcp_workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+
+      - name: Init
+        working-directory: terraform/${{ matrix.cloud }}/${{ matrix.root }}
+        run: terraform init -input=false -backend-config="bucket=${{ matrix.state }}"
+
+      - name: Plan the destroy
+        working-directory: terraform/${{ matrix.cloud }}/${{ matrix.root }}
+        run: |
+          terraform plan -destroy -input=false -no-color -out=destroy.tfplan
+          {
+            echo "### tf destroy: ${{ matrix.cloud }}/${{ matrix.root }}"
+            echo '```'
+            terraform show -no-color destroy.tfplan | tail -c 60000
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Destroys exactly the plan above.
+      - name: Destroy
+        working-directory: terraform/${{ matrix.cloud }}/${{ matrix.root }}
+        run: terraform apply -input=false -no-color destroy.tfplan
