@@ -74,8 +74,14 @@ jobs:
         id: dev
         if: steps.login.outputs.ready == 'true'
         run: |
-          if aws lambda get-function-configuration --function-name "$FUNCTION" >/dev/null 2>&1; then
+          if type=$(aws lambda get-function-configuration --function-name "$FUNCTION" --query PackageType --output text 2>/dev/null); then
             echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "package=$type" >> "$GITHUB_OUTPUT"
+            # A push can start this while tf apply is still replacing the function. The run
+            # that follows the apply then does the update.
+            if [ "$type" != "Image" ]; then
+              echo "::notice::Function update skipped: the function is a $type package for now. The run after tf apply points it at the image."
+            fi
           else
             echo "::notice::Function update skipped: the DEV function does not exist yet. Apply terraform/aws/dev first."
             echo "ready=false" >> "$GITHUB_OUTPUT"
@@ -102,7 +108,7 @@ jobs:
           echo "Pushed \`${URI}:${tag}\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Point the function at the image
-        if: steps.dev.outputs.ready == 'true' && steps.image.outputs.image != ''
+        if: steps.dev.outputs.package == 'Image' && steps.image.outputs.image != ''
         env:
           IMAGE: ${{ steps.image.outputs.image }}
         run: |
