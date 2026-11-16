@@ -29,13 +29,21 @@ resource "azurerm_role_assignment" "deployer_dev" {
   principal_id         = azuread_service_principal.github["dev-deployer"].object_id
 }
 
-# The identity the Function runs as: read metrics and costs, read the webhook secrets.
+# The identity the: read metrics and costs, read the webhook secrets.
 # DEV adds access to its app-state storage.
 resource "azurerm_user_assigned_identity" "runtime" {
   name                = "anomaly-runtime"
   resource_group_name = azurerm_resource_group.seed.name
   location            = azurerm_resource_group.seed.location
   tags                = local.tags
+}
+
+# Creating or updating a job that runs as the runtime identity needs the right to assign that
+# identity. This role grants only that, on this one identity, and nothing else.
+resource "azurerm_role_assignment" "deployer_assigns_runtime" {
+  scope                = azurerm_user_assigned_identity.runtime.id
+  role_definition_name = "Managed Identity Operator"
+  principal_id         = azuread_service_principal.github["dev-deployer"].object_id
 }
 
 resource "azurerm_role_assignment" "runtime_subscription" {
