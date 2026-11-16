@@ -40,10 +40,13 @@ jobs:
       - id: roots
         env:
           ONLY_READY: "1"
+          FOR_APPLY: "1"
           BEFORE: ${{ github.event.before }}
           TARGET: ${{ inputs.target }}
           GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
         run: |
           if [ -n "$TARGET" ]; then
             roots=$(.github/scripts/select-roots.sh target "$TARGET")
@@ -84,10 +87,19 @@ jobs:
           identity: ${{ matrix.apply_identity }}
           gcp_workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+          azure_tenant_id: ${{ vars.AZURE_TENANT_ID }}
+          azure_subscription_id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          azure_client_id_tf_planner: ${{ vars.AZURE_CLIENT_ID_TF_PLANNER }}
+          azure_client_id_seed_admin: ${{ vars.AZURE_CLIENT_ID_SEED_ADMIN }}
+          azure_client_id_dev_deployer: ${{ vars.AZURE_CLIENT_ID_DEV_DEPLOYER }}
 
       - name: Init
         working-directory: terraform/${{ matrix.cloud }}/${{ matrix.root }}
-        run: terraform init -input=false -backend-config="bucket=${{ matrix.state }}"
+        env:
+          BACKEND: ${{ toJSON(matrix.backend) }}
+        run: |
+          mapfile -t backend_args < <(jq -r 'to_entries[] | "-backend-config=\(.key)=\(.value)"' <<<"$BACKEND")
+          terraform init -input=false "${backend_args[@]}"
 
       - name: Plan
         working-directory: terraform/${{ matrix.cloud }}/${{ matrix.root }}
