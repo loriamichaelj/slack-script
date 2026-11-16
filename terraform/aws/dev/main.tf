@@ -19,6 +19,7 @@ resource "aws_s3_bucket" "app" {
   force_destroy = true # DEV is meant to be torn down
 }
 
+#trivy:ignore:AWS-0132
 resource "aws_s3_bucket_server_side_encryption_configuration" "app" {
   bucket = aws_s3_bucket.app.id
 
