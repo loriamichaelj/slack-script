@@ -2,6 +2,14 @@
 
 Watches metrics on AWS, Azure and GCP and posts a Slack alert when one looks wrong. It runs on a schedule, makes one pass, and exits.
 
+The code supports all three clouds. This repo's own deployment is built one cloud at a time:
+
+| Cloud | Metrics and cost code | Deployed | Terraform |
+| --- | --- | --- | --- |
+| GCP | yes | yes, as Cloud Run jobs on Cloud Scheduler | `terraform/gcp`: `seed`, `dev`, `org` |
+| AWS | yes | not yet, the seed is written but not applied | `terraform/aws`: `seed`; `dev` is next |
+| Azure | yes | not yet | none yet |
+
 ## Quick start
 
 ```bash
@@ -26,6 +34,8 @@ Options: `--dry-run` prints instead of posting, `--only aws|azure|gcp` runs one 
 
 Exit codes: `0` ok, `1` a fetch or post failed, `2` bad config.
 
+On AWS Lambda, `anomaly_alerts.handler.lambda_handler` runs the same commands from an event such as `{"command": "routine", "kind": "cost"}`. The config path comes from the `ANOMALY_CONFIG` environment variable, and a non-zero exit raises, so Lambda records the failure.
+
 ## Architecture
 
 Each run is one short process. Alerts and routine reports share the same scan, then go their own way.
@@ -44,7 +54,7 @@ flowchart LR
   scan --> detectors["Detectors and guards<br/>mad, zscore,<br/>ewma, iqr"]
   routine -->|cost| cost["Cost adapters<br/>Cost Explorer<br/>Cost Management<br/>BigQuery billing export"]
 
-  run <-->|cooldown| state[("State file<br/>.state/alerts.json")]
+  run <-->|cooldown| state[("Cooldown state<br/>file, bucket mount,<br/>or S3 object")]
   run --> actions["Next steps<br/>from actions.yaml"]
   run --> slack["Slack<br/>alerts webhook"]
   routine --> routineSlack["Slack<br/>routine webhook,<br/>or the alerts one"]
@@ -102,9 +112,21 @@ flowchart LR
 6. Add recommended next steps from `config/actions.yaml`.
 7. Post to Slack, most severe first, up to a limit per run.
 
+Each run looks at the newest `sustained_points` points (3 by default). With 5 minute points that is about 15 minutes, so a breach is caught only if it is still going when the run happens. Running less often, for example hourly, saves cost but misses spikes that start and end between two runs.
+
 To watch a whole GCP org, point a metric at the scoping project and set `group_by: [resource.labels.project_id]`, so each project alerts on its own (see `terraform/gcp/org`).
 
 Credentials come from each cloud SDK's usual login, and read-only access is enough. The cost report also needs billing read access: `ce:GetCostAndUsage` on AWS, Cost Management Reader on Azure, and on GCP BigQuery Data Viewer on the billing export dataset plus BigQuery Job User.
+
+## Cooldown state
+
+The cooldown (and the heartbeat's "last alert run" line) needs a small JSON document that survives between runs. Set `state.path` in the config to one of:
+
+- a local file, such as `.state/alerts.json`, for cron on a machine with a disk;
+- a file on a mounted bucket, which is how the GCP Cloud Run jobs do it;
+- `s3://bucket/key`, for AWS Lambda and anywhere else with no mounted disk. It needs the AWS extra (`boto3`) and read and write access to that object.
+
+If the document cannot be read, the run carries on with an empty one. The worst case is a repeat alert.
 
 ## Routine reports
 
@@ -130,6 +152,29 @@ So keep the list short:
 
 ## Scheduling
 
-[cron](examples/cron.md) · [AWS EventBridge](examples/eventbridge.md) · [GCP Cloud Scheduler and Azure](examples/cloud-scheduler.md)
+The default is every 5 minutes, matching the default `period`. [cron](examples/cron.md) · [AWS EventBridge](examples/eventbridge.md) · [GCP Cloud Scheduler and Azure](examples/cloud-scheduler.md)
 
 This repo's own deployment runs on GCP Cloud Run: see [terraform/gcp/dev](terraform/gcp/dev/README.md).
+
+## Deployment and CI/CD
+
+Terraform lives in one directory per cloud and environment. `seed` creates what everything else needs (state buckets, GitHub OIDC identities, webhook secrets), `dev` creates the running app, and `org` (GCP only) sets up org-wide metrics and is applied by hand. Every resource gets the tags or labels `project`, `app`, `env`, `managed_by` and `repo`.
+
+GitHub Actions plan every Terraform root on pull requests and apply them on merge, signing in to each cloud with OIDC and no stored keys. A cloud's workflows stay switched off until its seed has been applied once from a laptop. See [.github/README.md](.github/README.md) for the workflows, naming conventions and how to add a root or a cloud.
+
+## Development
+
+```bash
+pip install -e ".[all,dev]"
+pytest
+```
+
+The tests use fake cloud clients, so they need no credentials. CI runs them on Python 3.11 and 3.12, then runs Trivy and Checkov on the Terraform.
+
+```text
+src/anomaly_alerts/   the CLI, pipeline, detectors, providers, cost adapters and Slack output
+config/               example config and next-step rules
+examples/             cron, EventBridge and Cloud Scheduler setups
+terraform/            gcp/{seed,dev,org} and aws/seed
+.github/              workflows, shared actions and the CI/CD README
+```
