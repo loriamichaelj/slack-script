@@ -116,6 +116,18 @@ Alerts only post when something is wrong, so a quiet channel could mean healthy 
 
 Set `slack.routine_webhook_env` to send these to their own channel. Failed metrics or accounts are named, but error details are left out because they can contain account IDs.
 
+## Keeping the bill low
+
+Cost grows with the number of metrics times the number of runs, not with lookback or period. CloudWatch bills `GetMetricData` per metric requested (about $0.01 per 1,000), so batching calls does not reduce it.
+
+At the default 5 minute schedule, one AWS metric is 288 requests a day, about $0.09 a month. 10 metrics is about $0.90 a month and 50 is about $4.30. GCP reads fit inside Cloud Monitoring's free allowance at this size. Check each cloud's current pricing before relying on these numbers.
+
+So keep the list short:
+
+- Pick about 10 to 15 metrics where an alert would change what you do, such as load balancer 5xx, function errors and queue age.
+- Leave out metrics you would only glance at. The daily digest can still cover them if they are in the config, so add them there only when the digest earns its cost.
+- Count metrics in the config before adding a cloud. Every routine heartbeat and digest also re-fetches the whole list.
+
 ## Scheduling
 
 [cron](examples/cron.md) · [AWS EventBridge](examples/eventbridge.md) · [GCP Cloud Scheduler and Azure](examples/cloud-scheduler.md)

@@ -21,6 +21,8 @@ defaults:
   min_points: 30
   sustained_points: 3
 
+# Every metric is fetched on every run, so cost grows with this list. Aim for 10 to 15
+# that matter (see "Keeping the bill low" in the README).
 metrics:
   - name: alb-5xx
     provider: aws
