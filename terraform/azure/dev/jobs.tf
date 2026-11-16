@@ -46,6 +46,13 @@ resource "azurerm_container_app_environment" "app" {
   location                   = local.location
   log_analytics_workspace_id = azurerm_log_analytics_workspace.app.id
   tags                       = local.tags
+
+  # Azure adds this profile to every environment. Saying so here keeps plans free of a
+  # difference that would show up for whoever runs them.
+  workload_profile {
+    name                  = "Consumption"
+    workload_profile_type = "Consumption"
+  }
 }
 
 resource "azurerm_container_app_job" "app" {
@@ -56,6 +63,7 @@ resource "azurerm_container_app_job" "app" {
   resource_group_name          = local.rg
   location                     = local.location
   container_app_environment_id = azurerm_container_app_environment.app.id
+  workload_profile_name        = "Consumption"
   tags                         = local.tags
 
   # A retry could post the same alert twice. The next run picks up what was missed.
