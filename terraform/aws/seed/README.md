@@ -7,7 +7,7 @@ Creates what the DEV environment depends on, in account `370767313925` (us-east-
 - roles: `seed-admin` (SEED), `dev-deployer` (DEV apply and CI destroy), `tf-planner` (CI plan, read-only), `anomaly-runtime` (the Lambda functions' identity)
 - the `slack-webhook` and `slack-routine-webhook` secrets, without values (see below)
 
-Every resource that supports tags gets `app`, `env`, `managed_by` and `repo` through the provider's `default_tags`.
+Every resource that supports tags gets `project`, `app`, `env`, `managed_by` and `repo` through the provider's `default_tags`.
 
 ## Who can use which role
 

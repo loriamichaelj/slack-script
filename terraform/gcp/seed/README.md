@@ -9,7 +9,7 @@ Creates what the DEV environment depends on, in project `slack-anomaly-dev`:
 - the `billing_export` BigQuery dataset for the cost report, readable by `anomaly-runtime`
 - the `slack-webhook` and `slack-routine-webhook` secrets, without values (see below)
 
-Every resource that supports labels gets `app`, `env`, `managed_by` and `repo` through the provider's `default_labels`. Service accounts and the Workload Identity pool do not support labels.
+Every resource that supports labels gets `project`, `app`, `env`, `managed_by` and `repo` through the provider's `default_labels`. Service accounts and the Workload Identity pool do not support labels.
 
 ## Who can use which account
 

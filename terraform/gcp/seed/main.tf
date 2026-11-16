@@ -2,6 +2,7 @@ locals {
   # Applied to every resource that supports labels, through the provider's default_labels.
   labels = merge(
     {
+      project    = "anomaly-alerts"
       app        = "anomaly-alerts"
       env        = "seed"
       managed_by = "terraform"

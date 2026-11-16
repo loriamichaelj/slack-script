@@ -19,6 +19,7 @@ provider "google" {
   region  = var.region
 
   default_labels = {
+    project    = "anomaly-alerts"
     app        = "anomaly-alerts"
     env        = "dev"
     managed_by = "terraform"
