@@ -8,7 +8,10 @@
 # Config and secrets are chosen by the environment at run time (see src/anomaly_alerts/runtime.py).
 
 # ---- Cloud Run and Azure Container Apps: run the command line tool.
-FROM python:3.12-slim AS cli
+# The base images are pinned by digest, so a build is the same every time and the only way a new
+# base gets in is a reviewed Dependabot PR that the image scan has passed. The tag is kept so
+# the pin is readable. The OS update below still applies fixes released since the pin.
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b AS cli
 
 ARG EXTRAS=all
 
@@ -29,7 +32,7 @@ USER app
 ENTRYPOINT ["anomaly-alerts"]
 
 # ---- AWS Lambda: the same code behind Lambda's runtime, with the handler as the command.
-FROM public.ecr.aws/lambda/python:3.12 AS lambda
+FROM public.ecr.aws/lambda/python:3.12@sha256:ca6bfddec7726813ba7251ac1a14c8aefbcc76b18343267c3b5f339c8db2c758 AS lambda
 
 ARG EXTRAS=aws
 

@@ -12,3 +12,12 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  # The Dockerfile's base images are pinned by digest, so this is what keeps them fresh. Only
+  # new builds of the same Python 3.12 are wanted: the Lambda and the images stay on one version.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
