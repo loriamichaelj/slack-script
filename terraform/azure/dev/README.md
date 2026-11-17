@@ -41,7 +41,7 @@ Azure pulls the image without credentials, so the GitHub package has to be publi
 
 ## Cost
 
-The Container Apps free monthly grant covers this workload many times over. The storage account and the logs cost a few cents, and the log cap keeps a runaway log from costing more. There is no registry bill, because the image is in GitHub's. The config starts with one metric (a check that the 5 minute job is still running) and the daily cost report with a $3 budget. Add metrics deliberately.
+The Container Apps free monthly grant covers this workload many times over. The storage account and the logs cost a few cents, and the log cap keeps a runaway log from costing more. There is no registry bill, because the image is in GitHub's. The config starts with one metric (a check that the 5 minute job is still running) and the daily cost report with a $5 budget. Add metrics deliberately.
 
 ## Tearing down
 
