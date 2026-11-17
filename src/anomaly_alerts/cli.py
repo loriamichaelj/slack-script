@@ -13,7 +13,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import actions, config, pipeline, routine, runtime
+from . import actions, config, pipeline, routine, runtime, watchdog
 from .cost import CostProviderPool
 from .providers import ProviderPool
 from .slack import client
@@ -125,4 +125,6 @@ def main(argv=None) -> int:
         result.fetched, result.anomalies, result.posted, result.in_cooldown,
         result.over_limit, result.fetch_errors, result.post_errors,
     )
+    if not args.dry_run:
+        watchdog.ping(result.ok)
     return 0 if result.ok else 1
