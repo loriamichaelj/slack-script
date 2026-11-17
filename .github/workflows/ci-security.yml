@@ -3,6 +3,11 @@ name: ci security
 on:
   pull_request:
     branches: [dev]
+  # Weekly, so a vulnerability published after the last PR still shows up, in the Actions tab and
+  # in the email GitHub sends for a failed run.
+  schedule:
+    - cron: "17 9 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
