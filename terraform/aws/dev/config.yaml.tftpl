@@ -20,8 +20,35 @@ defaults:
   sustained_points: 3
 
 # Each metric costs about $0.09 a month at a 5 minute schedule. Keep this list to
-# the ones that would change what you do. It starts with the function's own errors.
+# the ones that would change what you do. These watch the function itself.
 metrics:
+  # The alert job runs every 5 minutes, so one invocation lands in each period. Three empty
+  # periods in a row mean the schedule has stopped. One or two missed runs stay quiet.
+  - name: lambda-invocations
+    provider: aws
+    region: ${region}
+    namespace: AWS/Lambda
+    metric: Invocations
+    dimensions: {FunctionName: ${function_name}}
+    stat: Sum
+    category: availability
+    direction: drop
+    fill_missing: zero
+    min_abs_change: 1
+
+  # A run takes about 1.3 seconds, and a cold start about 4. The timeout is 300 seconds, so only
+  # a rise of 30 seconds or more (in milliseconds) is worth a message.
+  - name: lambda-duration
+    provider: aws
+    region: ${region}
+    namespace: AWS/Lambda
+    metric: Duration
+    dimensions: {FunctionName: ${function_name}}
+    stat: Average
+    category: latency
+    direction: spike
+    min_abs_change: 30000
+
   - name: lambda-errors
     provider: aws
     region: ${region}
@@ -41,4 +68,4 @@ cost:
   accounts:
     - name: aws-main
       provider: aws
-      budget: 3
+      budget: 5

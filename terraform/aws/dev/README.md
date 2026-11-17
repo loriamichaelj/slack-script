@@ -39,7 +39,7 @@ unset URL
 
 ## Cost
 
-Lambda, EventBridge Scheduler and the bucket fit well inside the free tier. The real cost is metric reads: about $0.09 a month for each metric at the 5 minute schedule, plus $0.30 a month for the daily cost report. The config starts with one metric (the function's own errors), so expect under $1 a month. Add metrics deliberately.
+Lambda, EventBridge Scheduler and the bucket fit well inside the free tier. The real cost is metric reads: about $0.09 a month for each metric at the 5 minute schedule, plus $0.30 a month for the daily cost report. The config watches the function itself with three metrics: errors, invocations (three empty periods in a row mean the schedule has stopped) and duration (only a rise of 30 seconds or more). That's about $0.27 a month, so the metrics and the cost report together are about $0.60. The monthly cost report warns against a $5 budget, and most of the account's bill is the Identity Center key, not this app. Add metrics deliberately.
 
 ## Tearing down
 

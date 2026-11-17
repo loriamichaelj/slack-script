@@ -45,11 +45,37 @@ metrics:
     fill_missing: zero
     min_abs_change: 5
 
+  # Any Cloud Run job that finished in failure, per job. A failed run is rare, so one is enough.
+  - name: cloud-run-job-failures
+    provider: gcp
+    project: ${project_id}
+    metric_type: run.googleapis.com/job/completed_execution_count
+    filter: 'metric.labels.result = "failed"'
+    aligner: ALIGN_DELTA
+    group_by: [resource.labels.job_name]
+    category: errors
+    direction: spike
+    fill_missing: zero
+    min_abs_change: 1
+
+  # The alert job runs every 5 minutes, so one run finishes in each period. Three empty periods in
+  # a row mean the schedule has stopped. One or two missed runs stay quiet.
+  - name: anomaly-run-succeeded
+    provider: gcp
+    project: ${project_id}
+    metric_type: run.googleapis.com/job/completed_execution_count
+    filter: 'metric.labels.result = "succeeded" AND resource.labels.job_name = "anomaly-run"'
+    aligner: ALIGN_DELTA
+    category: availability
+    direction: drop
+    fill_missing: zero
+    min_abs_change: 1
+
 cost:
   lag_days: 2            # the GCP billing export runs about a day behind
   accounts:
     - name: gcp-billing
       provider: gcp
       billing_table: ${billing_table}
-      budget: 3
+      budget: 5
       job_project: ${project_id}  # query from here: read-only access to the table is enough

@@ -41,5 +41,5 @@ variable "daily_log_cap_gb" {
 variable "budget" {
   description = "Monthly spend limit the cost report warns against, in USD."
   type        = number
-  default     = 3
+  default     = 5
 }
