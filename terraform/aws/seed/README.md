@@ -59,7 +59,19 @@ gh variable set AWS_ACCOUNT_ID --body 370767313925
 
 After that, any change to `terraform/aws/seed` goes through a pull request (plan, in the `CI` environment) and a merge to `dev` (apply, in the `SEED` environment, which needs a reviewer).
 
-Then add each webhook value by hand, so it never enters Terraform state:
+Then add each webhook value by hand, so it never enters Terraform state. They live in free SSM Parameter Store SecureStrings under `/anomaly-alerts`, which the runtime role may read. Terraform does not manage them, because it would read the value back into its state file. Run this from your own terminal, so the URL never appears anywhere else:
+
+```bash
+read -rs URL   # paste the incoming webhook URL, press Enter
+aws ssm put-parameter --name /anomaly-alerts/slack-webhook --type SecureString --value "$URL" --overwrite
+read -rs URL
+aws ssm put-parameter --name /anomaly-alerts/slack-routine-webhook --type SecureString --value "$URL" --overwrite
+unset URL
+```
+
+The older Secrets Manager secrets below are what the Lambda reads until it is switched to these, and then they can be deleted. Each one costs $0.40 a month.
+
+To add a value to a Secrets Manager secret instead:
 
 ```bash
 aws secretsmanager put-secret-value --secret-id slack-webhook --secret-string 'https://hooks.slack.com/...'

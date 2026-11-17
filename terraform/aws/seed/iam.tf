@@ -77,6 +77,15 @@ data "aws_iam_policy_document" "runtime" {
     resources = ["arn:aws:s3:::${var.name_prefix}-anomaly-app"]
   }
 
+  # The webhook URLs move to free SSM SecureString parameters under /anomaly-alerts. Terraform only
+  # grants the read: the parameters are created by hand (see README.md), because a parameter that
+  # Terraform manages would have its value read back into the state file.
+  statement {
+    sid       = "ReadWebhookParameters"
+    actions   = ["ssm:GetParameter"]
+    resources = ["arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/anomaly-alerts/*"]
+  }
+
   statement {
     sid       = "ReadWebhooks"
     actions   = ["secretsmanager:GetSecretValue"]
