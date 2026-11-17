@@ -10,9 +10,11 @@ Config (the --config value, or ANOMALY_CONFIG for Lambda):
   inline                the file itself, base64 encoded, in ANOMALY_CONFIG_B64
 
 Secrets:
-  <NAME>_SECRET_ID      id of an AWS Secrets Manager secret whose value becomes the variable
-                        <NAME>, for example SLACK_WEBHOOK_URL_SECRET_ID=slack-webhook sets
+  <NAME>_SECRET_ID      where the value of the variable <NAME> is kept, for example
+                        SLACK_WEBHOOK_URL_SECRET_ID=ssm:/anomaly-alerts/slack-webhook sets
                         SLACK_WEBHOOK_URL. A variable that is already set is left alone.
+                          ssm:/path   an AWS Systems Manager SecureString parameter (free)
+                          anything else   the id of an AWS Secrets Manager secret
                         Cloud Run and Container Apps inject secrets as variables themselves.
 
 LOG_LEVEL (DEBUG, INFO by default, WARNING or ERROR) sets the level where the host has already
@@ -28,6 +30,7 @@ import os
 from . import azureblob
 
 _SECRET_SUFFIX = "_SECRET_ID"
+_SSM_PREFIX = "ssm:"
 _DOWNLOADED_CONFIG = "/tmp/config.yaml"  # the one place every host lets the process write
 INLINE = "inline"
 
@@ -57,14 +60,27 @@ def load_secrets(environ=None, client_factory=None) -> list[str]:
     wanted = {name: secret for name, secret in wanted.items() if not environ.get(name)}
     if not wanted:
         return []
-    try:
-        client = (client_factory or _boto3_client)("secretsmanager")
-    except Exception as exc:
-        raise RuntimeError(f"cannot read secrets: {type(exc).__name__} starting the AWS client") from exc
+    factory = client_factory or _boto3_client
+    clients: dict[str, object] = {}
+
+    def client(service: str):
+        if service not in clients:
+            try:
+                clients[service] = factory(service)
+            except Exception as exc:
+                raise RuntimeError(f"cannot read secrets: {type(exc).__name__} starting the AWS client") from exc
+        return clients[service]
+
     for name, secret in wanted.items():
         # Only the variable name is logged: never the value, and no error text that could hold it.
         try:
-            environ[name] = client.get_secret_value(SecretId=secret)["SecretString"]
+            if secret.startswith(_SSM_PREFIX):
+                parameter = client("ssm").get_parameter(Name=secret[len(_SSM_PREFIX):], WithDecryption=True)
+                environ[name] = parameter["Parameter"]["Value"]
+            else:
+                environ[name] = client("secretsmanager").get_secret_value(SecretId=secret)["SecretString"]
+        except RuntimeError:
+            raise
         except Exception as exc:
             raise RuntimeError(f"could not read the secret for {name}: {type(exc).__name__}") from exc
     return sorted(wanted)

@@ -27,6 +27,83 @@ def encoded(text=CONFIG):
     return base64.b64encode(text.encode()).decode()
 
 
+class FakeAws:
+    """Secrets Manager and Systems Manager clients, each holding a few values."""
+
+    def __init__(self, secrets=None, parameters=None, fail=False):
+        self.secrets, self.parameters, self.fail, self.started, self.calls = secrets or {}, parameters or {}, fail, [], []
+
+    def __call__(self, service):
+        self.started.append(service)
+        return {"secretsmanager": self.SecretsManager, "ssm": self.Ssm}[service](self)
+
+    class SecretsManager:
+        def __init__(self, outer):
+            self.outer = outer
+
+        def get_secret_value(self, SecretId):
+            self.outer.calls.append(("secret", SecretId))
+            if self.outer.fail:
+                raise KeyError("https://hooks.slack.com/services/LEAK")
+            return {"SecretString": self.outer.secrets[SecretId]}
+
+    class Ssm:
+        def __init__(self, outer):
+            self.outer = outer
+
+        def get_parameter(self, Name, WithDecryption):
+            assert WithDecryption  # a SecureString comes back as ciphertext otherwise
+            self.outer.calls.append(("ssm", Name))
+            if self.outer.fail:
+                raise KeyError("https://hooks.slack.com/services/LEAK")
+            return {"Parameter": {"Value": self.outer.parameters[Name]}}
+
+
+class SecretSourceTests(unittest.TestCase):
+    def test_an_ssm_parameter_becomes_the_variable(self):
+        env = {"SLACK_WEBHOOK_URL_SECRET_ID": "ssm:/anomaly-alerts/slack-webhook"}
+        aws = FakeAws(parameters={"/anomaly-alerts/slack-webhook": "https://hooks.example/abc"})
+        self.assertEqual(runtime.load_secrets(env, aws), ["SLACK_WEBHOOK_URL"])
+        self.assertEqual(env["SLACK_WEBHOOK_URL"], "https://hooks.example/abc")
+        self.assertEqual(aws.started, ["ssm"])  # no Secrets Manager client for an SSM value
+
+    def test_a_secrets_manager_id_still_works(self):
+        env = {"SLACK_WEBHOOK_URL_SECRET_ID": "slack-webhook"}
+        aws = FakeAws(secrets={"slack-webhook": "from-secrets-manager"})
+        runtime.load_secrets(env, aws)
+        self.assertEqual((env["SLACK_WEBHOOK_URL"], aws.started), ("from-secrets-manager", ["secretsmanager"]))
+
+    def test_both_sources_can_be_mixed_and_each_client_starts_once(self):
+        env = {
+            "A_SECRET_ID": "ssm:/p/a", "B_SECRET_ID": "ssm:/p/b", "C_SECRET_ID": "plain-secret",
+        }
+        aws = FakeAws(secrets={"plain-secret": "c"}, parameters={"/p/a": "a", "/p/b": "b"})
+        runtime.load_secrets(env, aws)
+        self.assertEqual((env["A"], env["B"], env["C"]), ("a", "b", "c"))
+        self.assertEqual(sorted(aws.started), ["secretsmanager", "ssm"])
+
+    def test_a_variable_already_set_is_never_looked_up(self):
+        env = {"A_SECRET_ID": "ssm:/p/a", "A": "set-by-hand"}
+        aws = FakeAws()
+        self.assertEqual(runtime.load_secrets(env, aws), [])
+        self.assertEqual(aws.started, [])
+
+    def test_an_ssm_error_names_the_variable_and_never_leaks_the_cause(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            runtime.load_secrets({"SLACK_WEBHOOK_URL_SECRET_ID": "ssm:/p/a"}, FakeAws(fail=True))
+        self.assertIn("SLACK_WEBHOOK_URL", str(ctx.exception))
+        self.assertNotIn("LEAK", str(ctx.exception))
+        self.assertNotIn("hooks.slack.com", str(ctx.exception))
+
+    def test_a_client_that_cannot_start_is_a_clear_error(self):
+        def broken(service):
+            raise ModuleNotFoundError("boto3")
+
+        with self.assertRaises(RuntimeError) as ctx:
+            runtime.load_secrets({"A_SECRET_ID": "ssm:/p/a"}, broken)
+        self.assertIn("starting the AWS client", str(ctx.exception))
+
+
 class InlineConfigTests(unittest.TestCase):
     def test_config_is_written_from_the_environment_variable(self):
         with tempfile.TemporaryDirectory() as folder:
