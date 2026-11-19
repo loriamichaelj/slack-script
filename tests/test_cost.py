@@ -201,7 +201,7 @@ class AccountBreakdownTests(unittest.TestCase):
 class BudgetPayloadTests(unittest.TestCase):
     def payload(self, rows, **spec_kwargs):
         s = summarize(CostSpec("aws-main", "aws", {}, **spec_kwargs), data(rows), DAY, SETTINGS)
-        return blocks.build_cost_payload(NOW, DAY, [s], [])
+        return blocks.build_cost_payload(NOW, [s], [])
 
     def flat_rows(self, amount):
         return [DailyCost(DAY - timedelta(days=i), "EC2", amount) for i in range(0, 28)]
@@ -282,6 +282,32 @@ class RunCostTests(unittest.TestCase):
         self.assertLess(text.index("*zzz*"), text.index("*aaa*"))
         self.assertIn(":chart_with_upwards_trend: *zzz*", text)
         self.assertIn("Total: *300.00 USD*", text)
+
+    def test_each_account_is_reported_for_its_own_lag(self):
+        accounts = [
+            spec("fast"),
+            CostSpec("slow", "gcp", {"billing_table": "p.d.t"}, lag_days=2),
+        ]
+        fast = FakeCost({"fast": data(daily({"EC2": (100.0, 100.0)}))})
+        slow = FakeCost({"slow": data(daily({"BQ": (10.0, 10.0)}, day=DAY - timedelta(days=1)), provider="gcp")})
+        self.run_cost(None, accounts, overrides={"aws": fast, "gcp": slow})
+        payload = self.posted[0]
+        self.assertEqual(payload["text"], "Cost report OK: 2 accounts")
+        text = all_text(payload)
+        self.assertIn("*Cost report: OK*", text)
+        self.assertIn("*fast* (AWS) on 2026-10-28", text)
+        self.assertIn("*slow* (GCP) on 2026-10-27", text)
+        self.assertIn("Total: *110.00 USD* (each account on its own report day)", text)
+        self.assertEqual(fast.calls[0][2], date(2026, 10, 29))
+        self.assertEqual(slow.calls[0][2], date(2026, 10, 28))
+
+    def test_accounts_on_the_same_day_keep_the_day_in_the_title(self):
+        accounts = [spec("a"), CostSpec("b", "aws", {}, lag_days=1)]
+        by_name = {n: data(daily({"EC2": (1.0, 1.0)})) for n in ("a", "b")}
+        self.run_cost(by_name, accounts)
+        text = all_text(self.posted[0])
+        self.assertIn("*Cost report for 2026-10-28: OK*", text)
+        self.assertNotIn(" on 2026-10-28", text)
 
     def test_mixed_currencies_have_no_grand_total(self):
         accounts = [spec("us"), spec("eu")]

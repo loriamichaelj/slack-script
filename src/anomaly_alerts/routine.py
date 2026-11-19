@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Callable
 
@@ -42,6 +42,14 @@ class RoutineResult:
         return self.post_errors == 0
 
 
+def _alert_state(config: Config, only: str | None) -> dict:
+    """The state to read for each alert job. With no alert_state it is the one state_path,
+    which has no cloud name because the config could not say which cloud wrote it."""
+    if not config.alert_state:
+        return {None: config.state_path}
+    return {p: loc for p, loc in sorted(config.alert_state.items()) if not only or p == only}
+
+
 def run_heartbeat(
     config: Config,
     pool: ProviderPool,
@@ -67,9 +75,12 @@ def run_heartbeat(
         counts[0] += o.series is not None
         counts[1] += 1
 
-    # The alert job saves the state file on every run, so it shows that job is alive too.
-    state = StateStore(config.state_path, config.slack.cooldown_seconds)
-    state.load()
+    # Each alert job saves its state file on every run, so the file shows that job is alive too.
+    alert_jobs = {}
+    for provider, location in _alert_state(config, only).items():
+        state = StateStore(location, config.slack.cooldown_seconds)
+        state.load()
+        alert_jobs[provider] = (state.last_saved(), state.alerted_since(now - timedelta(hours=24)))
 
     result = RoutineResult(
         checked=len(outcomes) - len(failed),
@@ -84,8 +95,7 @@ def run_heartbeat(
         flagged=flagged,
         failed=failed,
         clouds={p: tuple(c) for p, c in sorted(clouds.items())},
-        last_alert_run=state.last_saved(),
-        alerted_24h=state.alerted_since(now - timedelta(hours=24)),
+        alert_jobs=alert_jobs,
     )
     _post(post, payload, result, "heartbeat")
     return result
@@ -164,14 +174,17 @@ def run_cost(
     if config.cost is None:
         raise ValueError("the cost report needs a cost section in the config")
     now = now or datetime.now(UTC)
-    settings = config.cost.settings
-    day = cost_report.report_day(now.date(), settings)
-    start, end = cost_report.fetch_window(day, settings)
 
     summaries, failed = [], []
     for spec in config.cost.accounts:
         if only and spec.provider != only:
             continue
+        # Billing data lands later on some clouds, so an account can have its own lag.
+        settings = config.cost.settings
+        if spec.lag_days is not None:
+            settings = replace(settings, lag_days=spec.lag_days)
+        day = cost_report.report_day(now.date(), settings)
+        start, end = cost_report.fetch_window(day, settings)
         try:
             data = pool.get(spec.provider).fetch(spec, start, end)
         except Exception as exc:  # one bad account must not stop the others
@@ -186,7 +199,7 @@ def run_cost(
         anomalies=sum(1 for s in summaries if s.flagged),
         fetch_errors=len(failed),
     )
-    _post(post, blocks.build_cost_payload(now, day, summaries, failed), result, "cost report")
+    _post(post, blocks.build_cost_payload(now, summaries, failed), result, "cost report")
     return result
 
 

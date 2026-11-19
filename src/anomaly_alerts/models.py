@@ -107,6 +107,7 @@ class CostSpec:
     provider: str
     selector: dict  # cloud-specific keys, validated in config.py
     budget: float | None = None  # monthly spend limit in the account's currency
+    lag_days: int | None = None  # this account's own lag; None uses the cost section's
 
 
 @dataclass(frozen=True)

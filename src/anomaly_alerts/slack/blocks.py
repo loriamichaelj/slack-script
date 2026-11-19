@@ -119,6 +119,13 @@ def _listing(items: list[str], limit: int = 10) -> str:
     return ", ".join(shown) + extra
 
 
+def _alert_job_text(now, last_run, alerted_24h: int) -> str:
+    if last_run is None:
+        return "no run recorded yet"
+    alerted = "anomaly" if alerted_24h == 1 else "anomalies"
+    return f"last run *{_ago(now, last_run)}* | *{alerted_24h}* {alerted} alerted in the last 24 h"
+
+
 def build_heartbeat_payload(
     now,
     *,
@@ -127,14 +134,14 @@ def build_heartbeat_payload(
     flagged: list[tuple[str, str, str]],
     failed: list[str],
     clouds: dict[str, tuple[int, int]] | None = None,
-    last_alert_run=None,
-    alerted_24h: int = 0,
+    alert_jobs: dict[str | None, tuple] | None = None,
 ) -> dict:
     """Routine "still alive" message. Lists metrics by name only, never error text.
 
     flagged holds (name, provider, severity) for each current anomaly, worst first.
-    clouds maps each provider to (fetched, total). last_alert_run is when the alert
-    job last saved its state, or None if it never has.
+    clouds maps each provider to (fetched, total). alert_jobs maps each cloud to (when its
+    alert job last saved its state or None if it never has, anomalies alerted in 24 h). The
+    key None means one unnamed job, shown as a single line.
     """
     degraded = bool(failed)
     status = "DEGRADED" if degraded else "OK"
@@ -159,14 +166,14 @@ def build_heartbeat_payload(
         lines.append(f"Anomalies now: {_listing(items)}")
     if failed:
         lines.append(f"Could not fetch: {_listing([f'`{esc(name)}`' for name in failed])}")
-    if last_alert_run is None:
-        lines.append("Alert job: no run recorded yet")
+    jobs = alert_jobs or {None: (None, 0)}
+    if list(jobs) == [None]:
+        lines.append(f"Alert job: {_alert_job_text(now, *jobs[None])}")
     else:
-        alerted = "anomaly" if alerted_24h == 1 else "anomalies"
-        lines.append(
-            f"Alert job: last run *{_ago(now, last_alert_run)}* | "
-            f"*{alerted_24h}* {alerted} alerted in the last 24 h"
-        )
+        lines.append("Alert jobs:")
+        lines += [
+            f"{PROVIDER_LABELS.get(p, p)}: {_alert_job_text(now, *job)}" for p, job in jobs.items()
+        ]
 
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": title}},
@@ -275,10 +282,12 @@ def _pct_text(pct: float | None) -> str:
     return "" if pct is None else f" ({pct:+.0f}%)"
 
 
-def _cost_section(summary) -> str:
+def _cost_section(summary, show_day: bool = False) -> str:
     """One account: the day's total, its change, month to date, and the top services."""
     provider = PROVIDER_LABELS.get(summary.provider, summary.provider)
     name = f"*{esc(summary.spec.name)}* ({provider})"
+    if show_day:
+        name += f" on {summary.day}"
     if summary.total is None:
         return f":hourglass_flowing_sand: {name}: no cost data for {summary.day} yet"
     icon = {"over": ":rotating_light:", "warn": ":warning:"}.get(summary.budget_state) or (
@@ -304,8 +313,14 @@ def _cost_section(summary) -> str:
     return "\n".join([line, *accounts, *services])
 
 
-def build_cost_payload(now, day, summaries, failed) -> dict:
-    """Routine spend report. Failed accounts are named only, never with error text."""
+def build_cost_payload(now, summaries, failed) -> dict:
+    """Routine spend report. Failed accounts are named only, never with error text.
+
+    Each account is reported for its own day, because billing data arrives later on some
+    clouds. The day goes in the title when they all agree, and on each account when not.
+    """
+    days = sorted({s.day for s in summaries})
+    when = f" for {days[0]}" if len(days) == 1 else ""
     spikes = sum(1 for s in summaries if s.spike)
     over = sum(1 for s in summaries if s.budget_state == "over")
     near = sum(1 for s in summaries if s.budget_state == "warn")
@@ -320,14 +335,18 @@ def build_cost_payload(now, day, summaries, failed) -> dict:
     else:
         status, color = "OK", COLORS["ok"]
 
-    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": f"*Cost report for {day}: {status}*"}}]
+    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": f"*Cost report{when}: {status}*"}}]
     currencies = {s.currency for s in summaries if s.total is not None}
     if len(currencies) == 1 and len(summaries) > 1:
         total = sum(s.total for s in summaries if s.total is not None)
+        own_days = " (each account on its own report day)" if len(days) > 1 else ""
         blocks.append(
-            {"type": "section", "text": {"type": "mrkdwn", "text": f"Total: *{money(total, currencies.pop())}*"}}
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"Total: *{money(total, currencies.pop())}*{own_days}"},
+            }
         )
-    lines = [_cost_section(s) for s in sorted(summaries, key=lambda s: (not s.flagged, s.spec.name))]
+    lines = [_cost_section(s, len(days) > 1) for s in sorted(summaries, key=lambda s: (not s.flagged, s.spec.name))]
     lines += [
         f":warning: *{esc(spec.name)}* ({PROVIDER_LABELS.get(spec.provider, spec.provider)}): could not fetch costs"
         for spec in failed
@@ -345,7 +364,7 @@ def build_cost_payload(now, day, summaries, failed) -> dict:
         parts.append(f"{spikes} spike{'s' if spikes != 1 else ''}")
     if failed:
         parts.append(f"{len(failed)} fetch error{'s' if len(failed) != 1 else ''}")
-    fallback = f"Cost report for {day} {status}: " + ", ".join(parts)
+    fallback = f"Cost report{when} {status}: " + ", ".join(parts)
     return {"text": fallback, "attachments": [{"color": color, "blocks": blocks}]}
 
 

@@ -9,6 +9,14 @@ slack:
 state:
   path: .state/alerts.json
 
+# Optional. One routine job can report on every cloud (the metrics and cost accounts below can
+# mix clouds). To show each cloud's alert job in the heartbeat, say where each one keeps its
+# state. Without this, the heartbeat reads state.path as the one alert job.
+# alert_state:
+#   aws: s3://my-bucket/state/alerts.json
+#   azure: https://myaccount.blob.core.windows.net/app/state/alerts.json
+#   gcp: /mnt/app/state/alerts.json
+
 actions_file: actions.yaml         # relative to this file
 
 # Applied to every metric unless the metric overrides it.
@@ -73,7 +81,7 @@ metrics:
 # Optional: spend per account for `anomaly-alerts routine --kind cost`, run once a day.
 # Reports the day lag_days ago against the average of the baseline_days before it.
 cost:
-  lag_days: 1            # billing data arrives late; GCP's export can need 2
+  lag_days: 1            # billing data arrives late; an account can set its own (see below)
   baseline_days: 7
   alert_pct: 25          # flag a day this far above the average...
   min_abs_change: 1      # ...and at least this much more, in the account's currency
@@ -93,3 +101,5 @@ cost:
       billing_table: my-billing-project.billing.gcp_billing_export_v1_XXXXXX
       project: slack-anomaly-dev
       job_project: my-project  # optional: run the query here, needing only read access to the table
+      lag_days: 2        # optional: this account's own lag, since the GCP export runs a day behind.
+                         # Accounts on different days are reported together, each marked with its day.
