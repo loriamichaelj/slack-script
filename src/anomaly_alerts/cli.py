@@ -11,7 +11,9 @@ import json
 import logging
 import os
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from . import actions, config, pipeline, routine, runtime, watchdog
 from .cost import CostProviderPool
@@ -34,6 +36,20 @@ def _load_dotenv(path: Path) -> None:
         os.environ.setdefault(key.strip(), value.strip().strip("'\""))
 
 
+def _hours(value: str) -> frozenset[int]:
+    try:
+        hours = frozenset(int(part) for part in value.split(","))
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected hours like 0,6,12,18, got {value!r}") from None
+    if not hours or any(h < 0 or h > 23 for h in hours):
+        raise argparse.ArgumentTypeError(f"hours must be between 0 and 23, got {value!r}")
+    return hours
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
 def _parse(argv) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="anomaly-alerts",
@@ -52,6 +68,13 @@ def _parse(argv) -> argparse.Namespace:
         choices=routine.KINDS,
         default="heartbeat",
         help="routine report to post: heartbeat (default), digest or cost (routine command only)",
+    )
+    parser.add_argument(
+        "--local-hours",
+        type=_hours,
+        help="run only when the hour in the slack.shared_message time zone is one of these, such "
+        "as 0,6,12,18, and otherwise exit quietly. For a host whose cron is in UTC only: schedule "
+        "it at every UTC hour that can be one of these, and daylight saving takes care of itself",
     )
     parser.add_argument("--dry-run", action="store_true", help="print payloads, do not post or save state")
     parser.add_argument("--only", choices=["aws", "azure", "gcp"], help="run one cloud only")
@@ -113,6 +136,17 @@ def main(argv=None) -> int:
         runtime.load_secrets()
         cfg = config.load(runtime.resolve_config(args.config))
         rules = actions.load_rules(cfg.actions_path)
+        if args.local_hours is not None:
+            settings = cfg.slack.shared_message
+            if settings is None:
+                raise config.ConfigError("--local-hours needs slack.shared_message, for its time zone")
+            hour = _now().astimezone(ZoneInfo(settings.time_zone)).hour
+            if hour not in args.local_hours:
+                log.info(
+                    "it is hour %d in %s, not one of %s: nothing to do",
+                    hour, settings.time_zone, sorted(args.local_hours),
+                )
+                return 0
         is_routine = args.command == "routine"
         if is_routine and args.kind == "cost" and cfg.cost is None:
             raise config.ConfigError("the cost report needs a cost section in the config")
