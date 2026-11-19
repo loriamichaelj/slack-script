@@ -1,7 +1,7 @@
 # The Slack webhook secrets are created by SEED, so tearing down DEV keeps them and
 # their values. DEV only lets the jobs read them.
 locals {
-  webhook_secrets = toset(["slack-webhook", "slack-routine-webhook"])
+  webhook_secrets = toset(["slack-webhook", "slack-routine-webhook", "slack-bot-token"])
 }
 
 # DEV created these secrets at first. Hand them to SEED without deleting them.

@@ -32,6 +32,7 @@ resource "aws_lambda_function" "app" {
       ANOMALY_CONFIG                      = "s3://${aws_s3_bucket.app.id}/${aws_s3_object.config.key}"
       SLACK_WEBHOOK_URL_SECRET_ID         = "slack-webhook"
       SLACK_ROUTINE_WEBHOOK_URL_SECRET_ID = "slack-routine-webhook"
+      SLACK_BOT_TOKEN_SECRET_ID           = "ssm:/anomaly-alerts/slack-bot-token"
     }
   }
 

@@ -85,8 +85,10 @@ resource "aws_s3_object" "config" {
   key          = "config.yaml"
   content_type = "text/yaml"
   content = templatefile("${path.module}/config.yaml.tftpl", {
-    bucket        = aws_s3_bucket.app.id
-    region        = var.region
-    function_name = local.function_name
+    bucket           = aws_s3_bucket.app.id
+    region           = var.region
+    function_name    = local.function_name
+    slack_channel_id = var.slack_channel_id
+    time_zone        = var.time_zone
   })
 }

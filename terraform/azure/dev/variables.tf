@@ -38,6 +38,18 @@ variable "daily_log_cap_gb" {
   default     = 0.1
 }
 
+variable "slack_channel_id" {
+  description = "Slack channel the routine reports share one message in (the channel ID, not its name)."
+  type        = string
+  default     = "C0CC5RTC4R0"
+}
+
+variable "time_zone" {
+  description = "Time zone the routine reports are scheduled in. The jobs run at every UTC hour it can be, and skip the rest."
+  type        = string
+  default     = "America/New_York"
+}
+
 variable "budget" {
   description = "Monthly spend limit the cost report warns against, in USD."
   type        = number

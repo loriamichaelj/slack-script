@@ -48,9 +48,11 @@ resource "google_storage_bucket_object" "config" {
   name         = "config.yaml"
   content_type = "text/yaml"
   content = templatefile("${path.module}/config.yaml.tftpl", {
-    project_id    = var.project_id
-    billing_table = var.billing_table
-    mount_path    = local.mount_path
+    project_id       = var.project_id
+    billing_table    = var.billing_table
+    mount_path       = local.mount_path
+    slack_channel_id = var.slack_channel_id
+    time_zone        = var.time_zone
   })
 }
 
