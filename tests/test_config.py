@@ -41,6 +41,30 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(spec.min_abs_change, 10.0)
         self.assertIsNone(cfg.actions_path)
 
+    def test_alert_state_names_each_clouds_state(self):
+        cfg = self.load(
+            VALID
+            + "alert_state:\n  aws: s3://bucket/state/alerts.json\n  gcp: /mnt/app/state/alerts.json\n"
+        )
+        self.assertEqual(cfg.alert_state, {"aws": "s3://bucket/state/alerts.json", "gcp": Path("/mnt/app/state/alerts.json")})
+
+    def test_alert_state_defaults_to_empty(self):
+        self.assertEqual(self.load(VALID).alert_state, {})
+
+    def test_alert_state_rejects_an_unknown_cloud_and_a_blank_location(self):
+        self.assertRejects(VALID + "alert_state:\n  oracle: s3://b/k\n", "alert_state: cloud must be one of")
+        self.assertRejects(VALID + "alert_state:\n  aws: ''\n", "alert_state: aws must be a non-empty location")
+        self.assertRejects(VALID + "alert_state: []\n", "alert_state: must map")
+
+    def test_cost_account_can_set_its_own_lag(self):
+        text = VALID + "cost:\n  accounts:\n    - {name: a, provider: aws}\n    - {name: g, provider: gcp, billing_table: p.d.t, lag_days: 2}\n"
+        accounts = self.load(text).cost.accounts
+        self.assertEqual([a.lag_days for a in accounts], [None, 2])
+
+    def test_cost_account_lag_is_bounded(self):
+        text = VALID + "cost:\n  accounts:\n    - {name: a, provider: aws, lag_days: 9}\n"
+        self.assertRejects(text, "lag_days must be at most 7")
+
     def test_each_detector_gets_its_own_default_threshold(self):
         for detector, expected in (("mad", 3.5), ("zscore", 3.0), ("ewma", 3.0), ("iqr", 1.5)):
             with self.subTest(detector=detector):

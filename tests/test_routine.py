@@ -155,12 +155,45 @@ class HeartbeatTests(unittest.TestCase):
         self.heartbeat({"cpu": make_series(QUIET_72)}, [make_spec()])
         self.assertIn("Alert job: no run recorded yet", all_text(self.posted[0]))
 
+    def test_reports_each_clouds_alert_job_when_several_are_configured(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        states = {}
+        for name, age in (("aws", timedelta(minutes=3)), ("azure", timedelta(hours=5))):
+            path = Path(folder.name) / f"{name}.json"
+            path.write_text(json.dumps({"x": {"at": (NOW - timedelta(hours=1)).isoformat(), "severity": "warning"}}))
+            saved = (NOW - age).timestamp()
+            os.utime(path, (saved, saved))
+            states[name] = path
+        states["gcp"] = Path(folder.name) / "never-ran.json"
+        cfg = make_config([make_spec()])
+        cfg = Config(cfg.slack, Path("unused.json"), None, cfg.metrics, alert_state=states)
+        fake = FakeProvider({"cpu": make_series(QUIET_72)})
+        routine.run_heartbeat(cfg, ProviderPool({"aws": fake}), self.posted.append, NOW)
+        text = all_text(self.posted[0])
+        self.assertIn("Alert jobs:", text)
+        self.assertIn("AWS: last run *3 min ago* | *1* anomaly alerted in the last 24 h", text)
+        self.assertIn("Azure: last run *5 h ago*", text)
+        self.assertIn("GCP: no run recorded yet", text)
+        self.assertNotIn("Alert job:", text)
+
+    def test_only_limits_the_alert_jobs_to_one_cloud(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        states = {name: Path(folder.name) / f"{name}.json" for name in ("aws", "azure")}
+        cfg = Config(SlackConfig("X", 3600, 10), Path("unused.json"), None, [make_spec()], alert_state=states)
+        fake = FakeProvider({"cpu": make_series(QUIET_72)})
+        routine.run_heartbeat(cfg, ProviderPool({"aws": fake}), self.posted.append, NOW, only="aws")
+        text = all_text(self.posted[0])
+        self.assertIn("AWS: no run recorded yet", text)
+        self.assertNotIn("Azure:", text)
+
     def test_alert_job_age_wording(self):
         cases = {timedelta(seconds=30): "under a minute ago", timedelta(hours=5): "5 h ago",
                  timedelta(days=3): "3 days ago"}
         for age, wording in cases.items():
             payload = blocks.build_heartbeat_payload(
-                NOW, checked=1, total=1, flagged=[], failed=[], last_alert_run=NOW - age
+                NOW, checked=1, total=1, flagged=[], failed=[], alert_jobs={None: (NOW - age, 0)}
             )
             self.assertIn(wording, all_text(payload))
 

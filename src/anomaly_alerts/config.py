@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -20,7 +20,7 @@ class ConfigError(Exception):
     pass
 
 
-_TOP_KEYS = {"slack", "state", "actions_file", "defaults", "metrics", "cost"}
+_TOP_KEYS = {"slack", "state", "alert_state", "actions_file", "defaults", "metrics", "cost"}
 _SLACK_KEYS = {"webhook_env", "routine_webhook_env", "cooldown_minutes", "max_alerts_per_run"}
 
 # Keys that belong to MetricSpec itself; everything else on a metric is a cloud selector.
@@ -71,6 +71,9 @@ class Config:
     actions_path: Path | None
     metrics: list[MetricSpec]
     cost: CostConfig | None = None  # only routine cost reports need it
+    # Where each cloud's alert job keeps its state, for a heartbeat that covers every cloud.
+    # Empty means the heartbeat reads state_path as the one alert job.
+    alert_state: dict[str, Path | str] = field(default_factory=dict)
 
 
 def parse_duration(value, label: str) -> int:
@@ -208,7 +211,14 @@ def _build_cost(raw) -> CostConfig:
             raise ConfigError(
                 f"{label}: provider must be one of {sorted(_COST_SELECTORS)}, got {provider!r}"
             )
-        selector = _selector(entry, {"name", "provider", "budget"}, _COST_SELECTORS, provider, label)
+        selector = _selector(
+            entry, {"name", "provider", "budget", "lag_days"}, _COST_SELECTORS, provider, label
+        )
+        lag_days = (
+            _number(entry, "lag_days", 1, label, integer=True, minimum=0, maximum=7)
+            if "lag_days" in entry
+            else None
+        )
         budget = None
         if "budget" in entry:
             budget = _number(entry, "budget", 0, label, minimum=0)
@@ -217,7 +227,9 @@ def _build_cost(raw) -> CostConfig:
         table = selector.get("billing_table")
         if table is not None and not _BILLING_TABLE.match(str(table)):
             raise ConfigError(f"{label}: billing_table must look like project.dataset.table, got {table!r}")
-        accounts.append(CostSpec(name=name, provider=provider, selector=selector, budget=budget))
+        accounts.append(
+            CostSpec(name=name, provider=provider, selector=selector, budget=budget, lag_days=lag_days)
+        )
     names = [a.name for a in accounts]
     dupes = sorted({n for n in names if names.count(n) > 1})
     if dupes:
@@ -228,6 +240,19 @@ def _build_cost(raw) -> CostConfig:
 def _state_location(value) -> Path | str:
     text = str(value)
     return text if text.startswith("s3://") or azureblob.is_blob_url(text) else Path(text)
+
+
+def _build_alert_state(raw) -> dict[str, Path | str]:
+    if not isinstance(raw, dict) or not raw:
+        raise ConfigError("alert_state: must map each cloud to the location of its state")
+    states = {}
+    for provider, location in raw.items():
+        if provider not in _SELECTORS:
+            raise ConfigError(f"alert_state: cloud must be one of {sorted(_SELECTORS)}, got {provider!r}")
+        if not isinstance(location, str) or not location.strip():
+            raise ConfigError(f"alert_state: {provider} must be a non-empty location, got {location!r}")
+        states[provider] = _state_location(location.strip())
+    return states
 
 
 def load(path: str | Path) -> Config:
@@ -276,4 +301,5 @@ def load(path: str | Path) -> Config:
         actions_path=(path.parent / actions_file) if actions_file else None,
         metrics=metrics,
         cost=_build_cost(raw["cost"]) if raw.get("cost") is not None else None,
+        alert_state=_build_alert_state(raw["alert_state"]) if raw.get("alert_state") is not None else {},
     )
