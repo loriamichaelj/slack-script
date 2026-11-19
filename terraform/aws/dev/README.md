@@ -5,11 +5,13 @@ Runs anomaly-alerts in account `370767313925` (us-east-1) as one Lambda function
 | Schedule | When | Event sent to the Lambda |
 | --- | --- | --- |
 | `anomaly-run` | every 5 minutes | `{"command": "run"}` |
-| `routine-heartbeat` | every 6 hours | `{"command": "routine", "kind": "heartbeat"}` |
+| `routine-heartbeat` | 00:00, 06:00, 12:00, 18:00 | `{"command": "routine", "kind": "heartbeat"}` |
 | `routine-digest` | 09:00 | `{"command": "routine", "kind": "digest"}` |
 | `routine-cost` | 09:30 | `{"command": "routine", "kind": "cost"}` |
 
 Times are in `time_zone` (default `America/New_York`). A failed run is not retried, because a retry could post the same alert twice: the next schedule picks up what was missed.
+
+The routine jobs share one Slack message with the other clouds (`slack.shared_message`, see [examples/slack-app.md](../../../examples/slack-app.md)), so they run a few minutes apart: AWS on the hour, GCP two minutes after, Azure four after. Each adds its own section, and a cloud that has not reported shows as waiting. If the bot token is missing or Slack refuses, the job posts its own message to the webhook instead. The Lambda reads the bot token from the SSM parameter `/anomaly-alerts/slack-bot-token`.
 
 ## What it creates
 

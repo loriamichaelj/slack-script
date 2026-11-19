@@ -5,11 +5,13 @@ Runs anomaly-alerts in `slack-anomaly-dev` as four Cloud Run jobs on Cloud Sched
 | Job | Schedule | Command |
 | --- | --- | --- |
 | `anomaly-run` | every 5 minutes | anomaly alerts |
-| `routine-heartbeat` | every 6 hours | `routine --kind heartbeat` |
-| `routine-digest` | 09:00 | `routine --kind digest` |
-| `routine-cost` | 09:30 | `routine --kind cost` |
+| `routine-heartbeat` | 00:02, 06:02, 12:02, 18:02 | `routine --kind heartbeat` |
+| `routine-digest` | 09:02 | `routine --kind digest` |
+| `routine-cost` | 09:32 | `routine --kind cost` |
 
-Times are in `time_zone` (default `America/New_York`). Every job mounts the `slack-anomaly-dev-anomaly-app` bucket at `/mnt/app`, which holds `config.yaml` (rendered from `config.yaml.tftpl`) and the cooldown state.
+Times are in `time_zone` (default `America/New_York`). The routine jobs share one Slack message with the other clouds (`slack.shared_message`, see [examples/slack-app.md](../../../examples/slack-app.md)), so they run a few minutes apart: AWS on the hour, GCP two minutes after, Azure four after. Each adds its own section, and a cloud that has not reported shows as waiting. If the bot token is missing or Slack refuses, the job posts its own message to the webhook instead.
+
+Every job mounts the `slack-anomaly-dev-anomaly-app` bucket at `/mnt/app`, which holds `config.yaml` (rendered from `config.yaml.tftpl`) and the cooldown state.
 
 ## How it gets deployed
 
@@ -18,7 +20,7 @@ Times are in `time_zone` (default `America/New_York`). Every job mounts the `sla
 
 ## Slack webhooks
 
-The jobs read the `slack-webhook` and `slack-routine-webhook` secrets, which SEED creates so they survive a DEV teardown. Cloud Run refuses to create a job whose secret has no version, so add both values first; the steps are in the [SEED README](../seed/README.md#slack-webhooks).
+The jobs read the `slack-webhook`, `slack-routine-webhook` and `slack-bot-token` secrets, which SEED creates so they survive a DEV teardown. Cloud Run refuses to create a job whose secret has no version, so add every value first; the steps are in the [SEED README](../seed/README.md#slack-webhooks) and [examples/slack-app.md](../../../examples/slack-app.md).
 
 ## Prerequisites
 
