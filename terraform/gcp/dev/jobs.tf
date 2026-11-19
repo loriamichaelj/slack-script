@@ -2,6 +2,14 @@
 locals {
   config_path = "${local.mount_path}/config.yaml"
 
+  # The routine jobs post through the bot token into the message the clouds share, and fall
+  # back to the webhooks if Slack refuses.
+  routine_secrets = {
+    SLACK_WEBHOOK_URL         = "slack-webhook"
+    SLACK_ROUTINE_WEBHOOK_URL = "slack-routine-webhook"
+    SLACK_BOT_TOKEN           = "slack-bot-token"
+  }
+
   jobs = {
     "anomaly-run" = {
       args     = ["--config", local.config_path]
@@ -10,18 +18,18 @@ locals {
     }
     "routine-heartbeat" = {
       args     = ["routine", "--kind", "heartbeat", "--config", local.config_path]
-      schedule = "0 */6 * * *"
-      secrets  = { SLACK_WEBHOOK_URL = "slack-webhook", SLACK_ROUTINE_WEBHOOK_URL = "slack-routine-webhook" }
+      schedule = "2 */6 * * *" # two minutes after AWS, so the clouds fill in one message in turn
+      secrets  = local.routine_secrets
     }
     "routine-digest" = {
       args     = ["routine", "--kind", "digest", "--config", local.config_path]
-      schedule = "0 9 * * *"
-      secrets  = { SLACK_WEBHOOK_URL = "slack-webhook", SLACK_ROUTINE_WEBHOOK_URL = "slack-routine-webhook" }
+      schedule = "2 9 * * *"
+      secrets  = local.routine_secrets
     }
     "routine-cost" = {
       args     = ["routine", "--kind", "cost", "--config", local.config_path]
-      schedule = "30 9 * * *"
-      secrets  = { SLACK_WEBHOOK_URL = "slack-webhook", SLACK_ROUTINE_WEBHOOK_URL = "slack-routine-webhook" }
+      schedule = "32 9 * * *"
+      secrets  = local.routine_secrets
     }
   }
 }

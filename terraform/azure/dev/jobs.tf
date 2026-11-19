@@ -3,23 +3,27 @@
 # public placeholder, and the deploy-azure-dev workflow points them at each commit's image.
 # Terraform ignores the image after creation, so deploys and applies never undo each other.
 locals {
-  # Cron is in UTC: 14:00 and 14:30 UTC are 9:00 and 9:30 in New York in winter.
+  # Cron is in UTC only, but the routine reports are scheduled in New York time like the other
+  # clouds. So each routine job runs at both UTC hours its local hour can fall on (a New York
+  # hour is 4 or 5 hours from UTC, depending on daylight saving), and --local-hours skips the one
+  # that is not the right local hour. The minutes are four after AWS, so the clouds fill in
+  # their shared message in turn.
   jobs = {
     "anomaly-run" = {
       schedule = "*/5 * * * *"
       args     = ["--config", "inline"]
     }
     "routine-heartbeat" = {
-      schedule = "0 */6 * * *"
-      args     = ["routine", "--kind", "heartbeat", "--config", "inline"]
+      schedule = "4 4,5,10,11,16,17,22,23 * * *" # local 0, 6, 12 and 18
+      args     = ["routine", "--kind", "heartbeat", "--config", "inline", "--local-hours", "0,6,12,18"]
     }
     "routine-digest" = {
-      schedule = "0 14 * * *"
-      args     = ["routine", "--kind", "digest", "--config", "inline"]
+      schedule = "4 13,14 * * *" # local 9
+      args     = ["routine", "--kind", "digest", "--config", "inline", "--local-hours", "9"]
     }
     "routine-cost" = {
-      schedule = "30 14 * * *"
-      args     = ["routine", "--kind", "cost", "--config", "inline"]
+      schedule = "34 13,14 * * *" # local 9, half past
+      args     = ["routine", "--kind", "cost", "--config", "inline", "--local-hours", "9"]
     }
   }
 
@@ -28,6 +32,7 @@ locals {
   webhook_secrets = {
     "slack-webhook"         = "SLACK_WEBHOOK_URL"
     "slack-routine-webhook" = "SLACK_ROUTINE_WEBHOOK_URL"
+    "slack-bot-token"       = "SLACK_BOT_TOKEN"
   }
 
   config_b64 = base64encode(templatefile("${path.module}/config.yaml.tftpl", {
@@ -35,6 +40,8 @@ locals {
     state_account_id   = azurerm_storage_account.app.id
     subscription_scope = data.azurerm_subscription.current.id
     budget             = var.budget
+    slack_channel_id   = var.slack_channel_id
+    time_zone          = var.time_zone
   }))
 }
 

@@ -3,17 +3,21 @@
 import re
 import tempfile
 import unittest
+from datetime import UTC, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from anomaly_alerts import config
 
 TERRAFORM = Path(__file__).resolve().parent.parent / "terraform"
 
 # What Terraform fills in, with stand-ins that have the right shape.
+SHARED = {"slack_channel_id": "C0123456789", "time_zone": "America/New_York"}
 VALUES = {
-    "gcp": {"project_id": "my-project", "billing_table": "p.d.t", "mount_path": "/mnt/app"},
-    "aws": {"bucket": "my-bucket", "region": "us-east-1", "function_name": "anomaly-alerts"},
+    "gcp": {"project_id": "my-project", "billing_table": "p.d.t", "mount_path": "/mnt/app", **SHARED},
+    "aws": {"bucket": "my-bucket", "region": "us-east-1", "function_name": "anomaly-alerts", **SHARED},
     "azure": {
+        **SHARED,
         "state_url": "https://acct.blob.core.windows.net/app/state/alerts.json",
         "state_account_id": "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/acct",
         "subscription_scope": "/subscriptions/s",
@@ -40,7 +44,45 @@ def load(cloud):
         return config.load(path)
 
 
+def azure_routine_jobs():
+    """Each Azure routine job's cron hours (UTC) and the --local-hours it is started with."""
+    text = (TERRAFORM / "azure" / "dev" / "jobs.tf").read_text()
+    jobs = {}
+    for name in ("heartbeat", "digest", "cost"):
+        block = re.search(rf'"routine-{name}" = \{{(.*?)\n    \}}', text, re.S).group(1)
+        cron = re.search(r'schedule = "(\S+) (\S+) \* \* \*"', block)
+        hours = re.search(r'"--local-hours", "([\d,]+)"', block)
+        jobs[name] = (int(cron.group(1)), {int(h) for h in cron.group(2).split(",")}, {int(h) for h in hours.group(1).split(",")})
+    return jobs
+
+
 class CloudConfigTests(unittest.TestCase):
+    def test_every_cloud_fills_in_the_shared_message_as_itself(self):
+        for cloud in EXPECTED_METRICS:
+            with self.subTest(cloud=cloud):
+                shared = load(cloud).slack.shared_message
+                self.assertEqual(shared.cloud, cloud)
+                self.assertEqual(shared.clouds, ("aws", "azure", "gcp"))
+                self.assertEqual((shared.channel, shared.time_zone), ("C0123456789", "America/New_York"))
+
+    def test_azure_runs_at_every_utc_hour_its_local_hours_can_be_in_winter_and_summer(self):
+        zone = ZoneInfo("America/New_York")
+        for name, (_, utc_hours, local_hours) in azure_routine_jobs().items():
+            for month in (1, 7):  # standard time and daylight saving time
+                with self.subTest(job=name, month=month):
+                    reached = {datetime(2026, month, 15, h, tzinfo=UTC).astimezone(zone).hour for h in utc_hours}
+                    self.assertTrue(local_hours <= reached, f"{name}: {sorted(local_hours - reached)} never runs")
+
+    def test_the_clouds_report_a_few_minutes_apart_so_they_fill_in_one_message_in_turn(self):
+        azure = {name: minute for name, (minute, _, _) in azure_routine_jobs().items()}
+        self.assertEqual(azure, {"heartbeat": 4, "digest": 4, "cost": 34})
+        gcp = (TERRAFORM / "gcp" / "dev" / "jobs.tf").read_text()
+        self.assertEqual(re.findall(r'schedule = "(\d+) (?:\*/6|9) \* \* \*"', gcp), ["2", "2", "32"])  # heartbeat, digest, cost
+        aws = (TERRAFORM / "aws" / "dev" / "schedules.tf").read_text()
+        self.assertIn('"cron(0 0/6 * * ? *)"', aws)
+        self.assertIn('"cron(30 9 * * ? *)"', aws)
+
+
     def test_each_template_loads_with_the_expected_metrics(self):
         for cloud, names in EXPECTED_METRICS.items():
             with self.subTest(cloud=cloud):

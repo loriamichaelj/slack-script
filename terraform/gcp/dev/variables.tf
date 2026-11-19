@@ -15,6 +15,12 @@ variable "time_zone" {
   default     = "America/New_York"
 }
 
+variable "slack_channel_id" {
+  description = "Slack channel the routine reports share one message in (the channel ID, not its name)."
+  type        = string
+  default     = "C0CC5RTC4R0"
+}
+
 variable "billing_table" {
   description = "Cloud Billing export table read by the cost report. The billing account's Standard export already goes to shiptrack; terraform/gcp/org grants read access to it."
   type        = string

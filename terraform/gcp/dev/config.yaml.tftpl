@@ -3,6 +3,13 @@
 slack:
   webhook_env: SLACK_WEBHOOK_URL
   routine_webhook_env: SLACK_ROUTINE_WEBHOOK_URL
+  # The routine reports of every cloud fill in one message. Each job adds its own section.
+  shared_message:
+    cloud: gcp
+    clouds: [aws, azure, gcp]
+    channel: ${slack_channel_id}
+    bot_token_env: SLACK_BOT_TOKEN
+    time_zone: ${time_zone}
   cooldown_minutes: 60
   max_alerts_per_run: 10
 
