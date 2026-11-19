@@ -396,5 +396,60 @@ metrics:
         self.assertEqual((kwargs["kind"], kwargs["provider"], kwargs["expected"]), ("heartbeat", "aws", ("aws", "azure", "gcp")))
 
 
+class LocalHoursTests(unittest.TestCase):
+    """--local-hours lets a UTC-only cron land on the same local slot all year."""
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.path = Path(folder.name) / "config.yaml"
+        self.path.write_text(SharedCliTests.YAML)
+
+    def run_at(self, now, *extra, path=None):
+        out = io.StringIO()
+        fake = mock.Mock(fetch=mock.Mock(side_effect=lambda spec, start, end: make_series(QUIET_72)))
+        pool = ProviderPool({"aws": fake})
+        with mock.patch.object(cli, "ProviderPool", return_value=pool), \
+                mock.patch.object(cli, "_now", return_value=now), \
+                mock.patch.dict(os.environ, {}, clear=True), \
+                contextlib.redirect_stdout(out):
+            code = cli.main(["routine", "--config", str(path or self.path), "--dry-run", *extra])
+        return code, out.getvalue(), fake.fetch.call_count
+
+    def test_a_wanted_hour_runs(self):
+        # 17:04 UTC is 12:04 in New York in November.
+        code, out, fetched = self.run_at(datetime(2026, 11, 19, 17, 4, tzinfo=UTC), "--local-hours", "0,6,12,18")
+        self.assertEqual((code, fetched), (0, 1))
+        self.assertIn("Heartbeat OK", out)
+
+    def test_the_other_utc_hour_is_skipped_in_winter(self):
+        # 16:04 UTC is 11:04 in New York in November.
+        code, out, fetched = self.run_at(datetime(2026, 11, 19, 16, 4, tzinfo=UTC), "--local-hours", "0,6,12,18")
+        self.assertEqual((code, out, fetched), (0, "", 0))
+
+    def test_the_same_local_hour_runs_an_hour_earlier_in_summer(self):
+        # 16:04 UTC is 12:04 in New York in July, and 17:04 UTC is 13:04.
+        run = datetime(2026, 7, 19, 16, 4, tzinfo=UTC)
+        self.assertEqual(self.run_at(run, "--local-hours", "12")[2], 1)
+        self.assertEqual(self.run_at(run + timedelta(hours=1), "--local-hours", "12")[2], 0)
+
+    def test_without_the_option_every_run_goes_ahead(self):
+        self.assertEqual(self.run_at(datetime(2026, 11, 19, 16, 4, tzinfo=UTC))[2], 1)
+
+    def test_it_needs_a_time_zone_from_the_shared_message(self):
+        plain = self.path.parent / "plain.yaml"
+        plain.write_text(SharedCliTests.YAML.replace("  shared_message: {cloud: aws, clouds: [aws, azure, gcp], channel: C1}\n", ""))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code, _, fetched = self.run_at(datetime(2026, 11, 19, 17, 4, tzinfo=UTC), "--local-hours", "12", path=plain)
+        self.assertEqual((code, fetched), (2, 0))
+        self.assertIn("needs slack.shared_message", err.getvalue())
+
+    def test_bad_hours_are_rejected_by_the_parser(self):
+        for value in ("12,x", "24", "-1", ""):
+            with self.subTest(value=value), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                cli.main(["routine", "--config", str(self.path), "--local-hours", value])
+
+
 if __name__ == "__main__":
     unittest.main()

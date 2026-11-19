@@ -11,6 +11,9 @@ slack:
   # channels:history, or groups:history for a private channel) in the bot_token_env variable,
   # and the bot added to the channel. Run the jobs a few minutes apart. Without the token, or if
   # Slack refuses, the job posts its own message to the webhook, so a report is never lost.
+  # A host whose cron is in UTC only (Azure Container Apps) can run with `--local-hours 0,6,12,18`
+  # and be scheduled at every UTC hour that can be one of those. The job then runs only when the
+  # hour in time_zone is one of them, so it follows daylight saving.
   # shared_message:
   #   cloud: aws                        # this config's cloud: its section in the message
   #   clouds: [aws, azure, gcp]         # every cloud that should report, in the order shown
