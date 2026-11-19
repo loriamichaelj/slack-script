@@ -22,6 +22,22 @@ resource "google_secret_manager_secret" "webhook" {
   depends_on = [google_project_service.apis]
 }
 
+# The Slack bot token lets each cloud's routine job edit the one message the clouds share.
+# Like the webhooks, Terraform creates the secret and never its value.
+resource "google_secret_manager_secret" "bot_token" {
+  secret_id = "slack-bot-token"
+
+  replication {
+    auto {}
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
 # These secrets were first created by DEV. Adopt them as they are, values included.
 import {
   for_each = local.webhook_secrets

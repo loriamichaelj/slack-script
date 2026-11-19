@@ -73,6 +73,16 @@ unset URL
 
 Use the same URL for both to send everything to one channel. The DEV jobs cannot be created until both have a version.
 
+## Slack bot token
+
+The `slack-bot-token` secret is for the shared routine message (see [examples/slack-app.md](../../../examples/slack-app.md)). Add the token once from your own terminal:
+
+```bash
+read -rs TOKEN   # paste the bot token (starts with xoxb-), press Enter
+printf %s "$TOKEN" | gcloud secrets versions add slack-bot-token --data-file=- --project slack-anomaly-dev
+unset TOKEN
+```
+
 ## Billing export and org metrics
 
 Two one-time steps after the first apply:

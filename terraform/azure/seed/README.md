@@ -83,6 +83,14 @@ for s in slack-webhook slack-routine-webhook; do
 done
 ```
 
+The Slack bot token for the shared routine message (see [examples/slack-app.md](../../../examples/slack-app.md)) goes in the same vault. The runtime identity already reads every secret in it. With the Secrets Officer role from above:
+
+```bash
+read -rs TOKEN   # paste the bot token (starts with xoxb-), press Enter
+printf %s "$TOKEN" | az keyvault secret set --vault-name kv-slack-anomaly-dev --name slack-bot-token --file /dev/stdin --encoding utf-8 --query id -o tsv
+unset TOKEN
+```
+
 ## Cost
 
 The state account and the vault cost a few cents a month. The identities, resource groups and role assignments are free.

@@ -69,6 +69,14 @@ aws ssm put-parameter --name /anomaly-alerts/slack-routine-webhook --type Secure
 unset URL
 ```
 
+The Slack bot token for the shared routine message (see [examples/slack-app.md](../../../examples/slack-app.md)) goes in the same place. The runtime role already reads everything under `/anomaly-alerts`:
+
+```bash
+read -rs TOKEN   # paste the bot token (starts with xoxb-), press Enter
+aws ssm put-parameter --name /anomaly-alerts/slack-bot-token --type SecureString --value "$TOKEN" --overwrite
+unset TOKEN
+```
+
 The older Secrets Manager secrets below are what the Lambda reads until it is switched to these, and then they can be deleted. Each one costs $0.40 a month.
 
 To add a value to a Secrets Manager secret instead:
