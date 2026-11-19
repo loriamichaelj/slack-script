@@ -2,12 +2,42 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from ..detectors import DETECTORS
 from ..models import CRITICAL, SPIKE, Anomaly, series_name
 
 COLORS = {"critical": "#d1242f", "warning": "#d4a72c", "ok": "#2da44e"}
 PROVIDER_LABELS = {"aws": "AWS", "azure": "Azure", "gcp": "GCP"}
 _BARS = "▁▂▃▄▅▆▇█"
+
+
+@dataclass(frozen=True)
+class Report:
+    """A routine report before it is wrapped for Slack: its title, how bad it is, and its body.
+
+    The same parts make the report one cloud posts alone, and that cloud's section when the
+    clouds share one message (see shared.py).
+    """
+
+    name: str  # "Heartbeat", "Health digest" or "Cost report"
+    label: str  # "OK", "DEGRADED", "SPIKE", ...
+    level: str  # "ok", "warning" or "critical": picks the colour and the icon
+    body: list[dict]  # the blocks under the title
+    text: str  # plain-text fallback for notifications
+    detail: str = ""  # what it covers, such as the day a cost report is for
+
+    @property
+    def title(self) -> str:
+        return f"{self.name}{f' for {self.detail}' if self.detail else ''}: {self.label}"
+
+    def payload(self, now) -> dict:
+        """The message one cloud posts to a webhook on its own."""
+        blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": f"*{self.title}*"}}, *self.body]
+        blocks.append(
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Run at {_stamp(now)} UTC"}]}
+        )
+        return {"text": self.text, "attachments": [{"color": COLORS[self.level], "blocks": blocks}]}
 
 
 def esc(text: str) -> str:
@@ -126,7 +156,11 @@ def _alert_job_text(now, last_run, alerted_24h: int) -> str:
     return f"last run *{_ago(now, last_run)}* | *{alerted_24h}* {alerted} alerted in the last 24 h"
 
 
-def build_heartbeat_payload(
+def build_heartbeat_payload(now, **kwargs) -> dict:
+    return build_heartbeat_report(now, **kwargs).payload(now)
+
+
+def build_heartbeat_report(
     now,
     *,
     checked: int,
@@ -135,7 +169,7 @@ def build_heartbeat_payload(
     failed: list[str],
     clouds: dict[str, tuple[int, int]] | None = None,
     alert_jobs: dict[str | None, tuple] | None = None,
-) -> dict:
+) -> Report:
     """Routine "still alive" message. Lists metrics by name only, never error text.
 
     flagged holds (name, provider, severity) for each current anomaly, worst first.
@@ -147,7 +181,6 @@ def build_heartbeat_payload(
     status = "DEGRADED" if degraded else "OK"
     anomalies = len(flagged)
     noun = "anomaly" if anomalies == 1 else "anomalies"
-    title = f"*Heartbeat: {status}*"
     errors = f"{len(failed)} fetch error{'' if len(failed) == 1 else 's'}"
     summary = (
         f"Checked *{checked}* of *{total}* metrics | *{anomalies}* {noun} right now | *{errors}*"
@@ -175,20 +208,11 @@ def build_heartbeat_payload(
             f"{PROVIDER_LABELS.get(p, p)}: {_alert_job_text(now, *job)}" for p, job in jobs.items()
         ]
 
-    blocks = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": title}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}},
-    ]
-    blocks.append(
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Run at {_stamp(now)} UTC"}]}
-    )
     fallback = (
         f"Heartbeat {status}: {checked}/{total} metrics checked, {anomalies} {noun}, {errors}"
     )
-    return {
-        "text": fallback,
-        "attachments": [{"color": COLORS["warning" if degraded else "ok"], "blocks": blocks}],
-    }
+    body = [{"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}}]
+    return Report("Heartbeat", status, "warning" if degraded else "ok", body, fallback)
 
 
 # Digest rows are routine.DigestRow; only their attributes are used here, so no import.
@@ -239,14 +263,18 @@ def _chunk(lines: list[str]) -> list[str]:
 
 
 def build_digest_payload(now, rows) -> dict:
+    return build_digest_report(rows).payload(now)
+
+
+def build_digest_report(rows) -> Report:
     """Routine per-metric health summary, worst first. Rows arrive already sorted."""
     counts = {key: sum(1 for r in rows if r.status == key) for key, _ in _DIGEST_COUNT_LABELS}
     if counts["critical"] or counts["warning"]:
-        status, color = "ALERTING", COLORS["critical" if counts["critical"] else "warning"]
+        status, level = "ALERTING", "critical" if counts["critical"] else "warning"
     elif counts["failed"]:
-        status, color = "DEGRADED", COLORS["warning"]
+        status, level = "DEGRADED", "warning"
     else:
-        status, color = "OK", COLORS["ok"]
+        status, level = "OK", "ok"
 
     parts = []
     for key, label in _DIGEST_COUNT_LABELS:
@@ -262,16 +290,10 @@ def build_digest_payload(now, rows) -> dict:
     if len(rows) > len(shown):
         lines.append(f"_and {len(rows) - len(shown)} more_")
 
-    blocks = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"*Health digest: {status}*"}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": summary}},
-    ]
+    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": summary}}]
     blocks += [{"type": "section", "text": {"type": "mrkdwn", "text": c}} for c in _chunk(lines)]
-    blocks.append(
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Run at {_stamp(now)} UTC"}]}
-    )
     fallback = f"Health digest {status}: {len(rows)} {metric_noun}" + "".join(f", {p}" for p in parts)
-    return {"text": fallback, "attachments": [{"color": color, "blocks": blocks}]}
+    return Report("Health digest", status, level, blocks, fallback)
 
 
 def money(amount: float, currency: str) -> str:
@@ -314,6 +336,10 @@ def _cost_section(summary, show_day: bool = False) -> str:
 
 
 def build_cost_payload(now, summaries, failed) -> dict:
+    return build_cost_report(summaries, failed).payload(now)
+
+
+def build_cost_report(summaries, failed) -> Report:
     """Routine spend report. Failed accounts are named only, never with error text.
 
     Each account is reported for its own day, because billing data arrives later on some
@@ -321,21 +347,22 @@ def build_cost_payload(now, summaries, failed) -> dict:
     """
     days = sorted({s.day for s in summaries})
     when = f" for {days[0]}" if len(days) == 1 else ""
+    detail = str(days[0]) if len(days) == 1 else ""
     spikes = sum(1 for s in summaries if s.spike)
     over = sum(1 for s in summaries if s.budget_state == "over")
     near = sum(1 for s in summaries if s.budget_state == "warn")
     if over:
-        status, color = "OVER BUDGET", COLORS["critical"]
+        status, level = "OVER BUDGET", "critical"
     elif spikes:
-        status, color = "SPIKE", COLORS["warning"]
+        status, level = "SPIKE", "warning"
     elif near:
-        status, color = "BUDGET WARNING", COLORS["warning"]
+        status, level = "BUDGET WARNING", "warning"
     elif failed:
-        status, color = "DEGRADED", COLORS["warning"]
+        status, level = "DEGRADED", "warning"
     else:
-        status, color = "OK", COLORS["ok"]
+        status, level = "OK", "ok"
 
-    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": f"*Cost report{when}: {status}*"}}]
+    blocks = []
     currencies = {s.currency for s in summaries if s.total is not None}
     if len(currencies) == 1 and len(summaries) > 1:
         total = sum(s.total for s in summaries if s.total is not None)
@@ -352,9 +379,6 @@ def build_cost_payload(now, summaries, failed) -> dict:
         for spec in failed
     ]
     blocks += [{"type": "section", "text": {"type": "mrkdwn", "text": c}} for c in _chunk(lines)]
-    blocks.append(
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Run at {_stamp(now)} UTC"}]}
-    )
     parts = [f"{len(summaries) + len(failed)} account{'s' if len(summaries) + len(failed) != 1 else ''}"]
     if over:
         parts.append(f"{over} over budget")
@@ -365,7 +389,7 @@ def build_cost_payload(now, summaries, failed) -> dict:
     if failed:
         parts.append(f"{len(failed)} fetch error{'s' if len(failed) != 1 else ''}")
     fallback = f"Cost report{when} {status}: " + ", ".join(parts)
-    return {"text": fallback, "attachments": [{"color": color, "blocks": blocks}]}
+    return Report("Cost report", status, level, blocks, fallback, detail)
 
 
 def _button(label: str, url: str) -> dict:

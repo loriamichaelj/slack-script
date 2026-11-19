@@ -5,6 +5,18 @@ slack:
   routine_webhook_env: SLACK_ROUTINE_WEBHOOK_URL
   cooldown_minutes: 60
   max_alerts_per_run: 10
+  # Optional. With one job per cloud, each routine report would arrive once per cloud. Set this
+  # in every cloud's config and they fill in ONE message instead: the first job to run posts it,
+  # and the others add their section to it. Needs a Slack bot token (scopes chat:write and
+  # channels:history, or groups:history for a private channel) in the bot_token_env variable,
+  # and the bot added to the channel. Run the jobs a few minutes apart. Without the token, or if
+  # Slack refuses, the job posts its own message to the webhook, so a report is never lost.
+  # shared_message:
+  #   cloud: aws                        # this config's cloud: its section in the message
+  #   clouds: [aws, azure, gcp]         # every cloud that should report, in the order shown
+  #   channel: C0123456789              # channel ID, not the name
+  #   bot_token_env: SLACK_BOT_TOKEN
+  #   time_zone: America/New_York       # the zone the schedules are written in
 
 state:
   path: .state/alerts.json

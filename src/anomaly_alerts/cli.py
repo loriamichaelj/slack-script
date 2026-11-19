@@ -16,7 +16,7 @@ from pathlib import Path
 from . import actions, config, pipeline, routine, runtime, watchdog
 from .cost import CostProviderPool
 from .providers import ProviderPool
-from .slack import client
+from .slack import bot, client, shared
 from .state import StateStore
 
 log = logging.getLogger("anomaly_alerts")
@@ -69,6 +69,35 @@ def _webhook_env(cfg: config.Config, is_routine: bool) -> str:
     return cfg.slack.webhook_env
 
 
+def _shared_publisher(cfg: config.Config, kind: str, dry_run: bool):
+    """How this job puts its routine report into the message the clouds share, or None to post
+    it as its own message. Without the bot token it posts on its own, so a missing secret
+    delays the merging but never the report."""
+    settings = cfg.slack.shared_message
+    if settings is None:
+        return None
+    if dry_run:
+        def preview(report, now):
+            message = shared.preview(
+                report, kind=kind, provider=settings.cloud, now=now,
+                expected=settings.clouds, time_zone=settings.time_zone,
+            )
+            print(json.dumps(message, indent=2, ensure_ascii=False))
+        return preview
+    token = os.environ.get(settings.bot_token_env, "")
+    if not token:
+        log.warning("%s is not set; posting the routine report as its own message", settings.bot_token_env)
+        return None
+    slack_bot = bot.SlackBot(token, settings.channel)
+
+    def publish(report, now):
+        shared.publish(
+            slack_bot, report, kind=kind, provider=settings.cloud, now=now,
+            expected=settings.clouds, time_zone=settings.time_zone,
+        )
+    return publish
+
+
 def main(argv=None) -> int:
     args = _parse(argv)
     logging.basicConfig(
@@ -106,7 +135,8 @@ def main(argv=None) -> int:
 
     if is_routine:
         pool = CostProviderPool() if args.kind == "cost" else ProviderPool()
-        result = routine.run(args.kind, cfg, pool, post, only=args.only)
+        publish = _shared_publisher(cfg, args.kind, args.dry_run)
+        result = routine.run(args.kind, cfg, pool, post, only=args.only, publish=publish)
         log.info(
             "routine %s complete: %d of %d fetched, %d flagged, %d fetch errors, %d post errors",
             args.kind, result.checked, result.total, result.anomalies,
