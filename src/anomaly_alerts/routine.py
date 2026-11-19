@@ -50,6 +50,9 @@ def _alert_state(config: Config, only: str | None) -> dict:
     return {p: loc for p, loc in sorted(config.alert_state.items()) if not only or p == only}
 
 
+Publish = Callable[[blocks.Report, datetime], None]
+
+
 def run_heartbeat(
     config: Config,
     pool: ProviderPool,
@@ -57,6 +60,7 @@ def run_heartbeat(
     now: datetime | None = None,
     *,
     only: str | None = None,
+    publish: Publish | None = None,
 ) -> RoutineResult:
     now = now or datetime.now(UTC)
     outcomes = pipeline.scan(config, pool, now, only)
@@ -88,7 +92,7 @@ def run_heartbeat(
         anomalies=len(flagged),
         fetch_errors=len(failed),
     )
-    payload = blocks.build_heartbeat_payload(
+    report = blocks.build_heartbeat_report(
         now,
         checked=result.checked,
         total=result.total,
@@ -97,7 +101,7 @@ def run_heartbeat(
         clouds={p: tuple(c) for p, c in sorted(clouds.items())},
         alert_jobs=alert_jobs,
     )
-    _post(post, payload, result, "heartbeat")
+    _post(post, report, now, result, "heartbeat", publish)
     return result
 
 
@@ -147,6 +151,7 @@ def run_digest(
     now: datetime | None = None,
     *,
     only: str | None = None,
+    publish: Publish | None = None,
 ) -> RoutineResult:
     now = now or datetime.now(UTC)
     outcomes = pipeline.scan(config, pool, now, only)
@@ -158,7 +163,7 @@ def run_digest(
         anomalies=sum(1 for r in rows if r.status in (CRITICAL, WARNING)),
         fetch_errors=failed,
     )
-    _post(post, blocks.build_digest_payload(now, rows), result, "health digest")
+    _post(post, blocks.build_digest_report(rows), now, result, "health digest", publish)
     return result
 
 
@@ -169,6 +174,7 @@ def run_cost(
     now: datetime | None = None,
     *,
     only: str | None = None,
+    publish: Publish | None = None,
 ) -> RoutineResult:
     """Yesterday's spend per account against its recent average. Needs a cost section."""
     if config.cost is None:
@@ -199,13 +205,29 @@ def run_cost(
         anomalies=sum(1 for s in summaries if s.flagged),
         fetch_errors=len(failed),
     )
-    _post(post, blocks.build_cost_payload(now, summaries, failed), result, "cost report")
+    _post(post, blocks.build_cost_report(summaries, failed), now, result, "cost report", publish)
     return result
 
 
-def _post(post: Callable[[dict], None], payload: dict, result: RoutineResult, label: str) -> None:
+def _post(
+    post: Callable[[dict], None],
+    report: blocks.Report,
+    now: datetime,
+    result: RoutineResult,
+    label: str,
+    publish: Publish | None = None,
+) -> None:
+    """Post the report to the shared message when there is one, else (or if that fails, so the
+    report is not lost) to the webhook as this cloud's own message."""
     try:
-        post(payload)
+        if publish is not None:
+            try:
+                publish(report, now)
+            except SlackError as exc:
+                log.error("could not update the shared %s, posting it on its own: %s", label, exc)
+                post(report.payload(now))
+        else:
+            post(report.payload(now))
     except SlackError as exc:
         log.error("could not post the %s: %s", label, exc)
         result.post_errors += 1

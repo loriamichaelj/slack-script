@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
@@ -21,7 +22,8 @@ class ConfigError(Exception):
 
 
 _TOP_KEYS = {"slack", "state", "alert_state", "actions_file", "defaults", "metrics", "cost"}
-_SLACK_KEYS = {"webhook_env", "routine_webhook_env", "cooldown_minutes", "max_alerts_per_run"}
+_SLACK_KEYS = {"webhook_env", "routine_webhook_env", "cooldown_minutes", "max_alerts_per_run", "shared_message"}
+_SHARED_KEYS = {"cloud", "clouds", "channel", "bot_token_env", "time_zone"}
 
 # Keys that belong to MetricSpec itself; everything else on a metric is a cloud selector.
 _TUNING_KEYS = {
@@ -51,11 +53,23 @@ _UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 
 
 @dataclass(frozen=True)
+class SharedMessage:
+    """Settings for one routine message that every cloud's job fills in (see slack/shared.py)."""
+
+    cloud: str  # the cloud this job's config is for: its section in the message
+    clouds: tuple[str, ...]  # every cloud that should report, in the order shown
+    channel: str  # channel ID the message lives in
+    bot_token_env: str = "SLACK_BOT_TOKEN"
+    time_zone: str = "America/New_York"  # the zone the schedules are written in
+
+
+@dataclass(frozen=True)
 class SlackConfig:
     webhook_env: str = "SLACK_WEBHOOK_URL"
     cooldown_seconds: int = 3600
     max_alerts_per_run: int = 10
     routine_webhook_env: str | None = None  # routine reports use webhook_env when unset
+    shared_message: SharedMessage | None = None  # routine reports share one message when set
 
 
 @dataclass(frozen=True)
@@ -242,6 +256,38 @@ def _state_location(value) -> Path | str:
     return text if text.startswith("s3://") or azureblob.is_blob_url(text) else Path(text)
 
 
+def _build_shared_message(raw) -> SharedMessage:
+    label = "slack.shared_message"
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{label}: must be a mapping")
+    unknown = set(raw) - _SHARED_KEYS
+    if unknown:
+        raise ConfigError(f"{label}: unknown key(s) {sorted(unknown)}")
+    cloud = raw.get("cloud")
+    if cloud not in _SELECTORS:
+        raise ConfigError(f"{label}: cloud must be one of {sorted(_SELECTORS)}, got {cloud!r}")
+    clouds = raw.get("clouds", [cloud])
+    if not isinstance(clouds, list) or not clouds or any(c not in _SELECTORS for c in clouds):
+        raise ConfigError(f"{label}: clouds must list some of {sorted(_SELECTORS)}, got {clouds!r}")
+    if cloud not in clouds or len(set(clouds)) != len(clouds):
+        raise ConfigError(f"{label}: clouds must list each cloud once, including {cloud}")
+    channel = _optional_str(raw, "channel", label)
+    if channel is None:
+        raise ConfigError(f"{label}: channel is required (the channel ID, such as C0123456789)")
+    zone = _optional_str(raw, "time_zone", label) or "America/New_York"
+    try:
+        ZoneInfo(zone)
+    except (ZoneInfoNotFoundError, ValueError, OSError):
+        raise ConfigError(f"{label}: time_zone {zone!r} is not a known time zone") from None
+    return SharedMessage(
+        cloud=cloud,
+        clouds=tuple(clouds),
+        channel=channel,
+        bot_token_env=_optional_str(raw, "bot_token_env", label) or "SLACK_BOT_TOKEN",
+        time_zone=zone,
+    )
+
+
 def _build_alert_state(raw) -> dict[str, Path | str]:
     if not isinstance(raw, dict) or not raw:
         raise ConfigError("alert_state: must map each cloud to the location of its state")
@@ -278,6 +324,11 @@ def load(path: str | Path) -> Config:
         cooldown_seconds=int(_number(slack_raw, "cooldown_minutes", 60, "slack", minimum=0) * 60),
         max_alerts_per_run=_number(slack_raw, "max_alerts_per_run", 10, "slack", integer=True, minimum=1),
         routine_webhook_env=_optional_str(slack_raw, "routine_webhook_env", "slack"),
+        shared_message=(
+            _build_shared_message(slack_raw["shared_message"])
+            if slack_raw.get("shared_message") is not None
+            else None
+        ),
     )
 
     defaults = raw.get("defaults") or {}
