@@ -2,14 +2,14 @@
 
 Runs anomaly-alerts in `Azure subscription 1` (east us) as four Azure Container Apps jobs, each on a cron schedule. They run the same container image as the Cloud Run jobs on GCP and the Lambda on AWS.
 
-| Job | When (UTC) | Command |
-| --- | --- | --- |
-| `anomaly-run` | every 5 minutes | anomaly alerts |
-| `routine-heartbeat` | every 6 hours | `routine --kind heartbeat` |
-| `routine-digest` | 14:00 | `routine --kind digest` |
-| `routine-cost` | 14:30 | `routine --kind cost` |
+| Job | Cron (UTC) | Runs at (New York) | Command |
+| --- | --- | --- | --- |
+| `anomaly-run` | every 5 minutes | every 5 minutes | anomaly alerts |
+| `routine-heartbeat` | `4 4,5,10,11,16,17,22,23 * * *` | 00:04, 06:04, 12:04, 18:04 | `routine --kind heartbeat --local-hours 0,6,12,18` |
+| `routine-digest` | `4 13,14 * * *` | 09:04 | `routine --kind digest --local-hours 9` |
+| `routine-cost` | `34 13,14 * * *` | 09:34 | `routine --kind cost --local-hours 9` |
 
-Cron is in UTC: 14:00 UTC is 9:00 in New York in winter and 10:00 in summer. A failed run is not retried, because a retry could post the same alert twice: the next schedule picks up what was missed.
+Container Apps cron is in UTC only, so each routine job is started at both UTC hours its New York hour can fall on, and `--local-hours` makes the wrong one exit at once without posting. That keeps the reports on the same New York time as AWS and GCP through daylight saving. The routine jobs share one Slack message with the other clouds (`slack.shared_message`, see [examples/slack-app.md](../../../examples/slack-app.md)), so they run a few minutes apart: AWS on the hour, GCP two minutes after, Azure four after. Each adds its own section, and a cloud that has not reported shows as waiting. If the bot token is missing or Slack refuses, the job posts its own message to the webhook instead. A failed run is not retried, because a retry could post the same alert twice: the next schedule picks up what was missed.
 
 ## What it creates
 
@@ -23,7 +23,7 @@ The jobs run as the `anomaly-runtime` managed identity from SEED, which reads Az
 ## How config and secrets reach the jobs
 
 - **Config:** Terraform renders `config.yaml.tftpl` and sets it as `ANOMALY_CONFIG_B64` on every job, and the jobs run with `--config inline`. A config change is one apply, with no image deploy. Edit the template, not the setting.
-- **Webhooks:** each job has two secrets that point at the Key Vault secrets `slack-webhook` and `slack-routine-webhook`, read with the managed identity. They become the variables `SLACK_WEBHOOK_URL` and `SLACK_ROUTINE_WEBHOOK_URL`, so no URL appears in Terraform or in state.
+- **Webhooks and bot token:** each job has three secrets that point at the Key Vault secrets `slack-webhook`, `slack-routine-webhook` and `slack-bot-token`, read with the managed identity. They become the variables `SLACK_WEBHOOK_URL`, `SLACK_ROUTINE_WEBHOOK_URL` and `SLACK_BOT_TOKEN`, so no URL appears in Terraform or in state.
 
 ## How it gets deployed
 
@@ -37,7 +37,7 @@ Azure pulls the image without credentials, so the GitHub package has to be publi
 ## Prerequisites
 
 - SEED applied, including the vault and the runtime identity.
-- Both webhook secrets in the vault: `slack-webhook` and `slack-routine-webhook`. The steps are in the [SEED README](../seed/README.md#slack-webhooks).
+- The three secrets in the vault: `slack-webhook`, `slack-routine-webhook` and `slack-bot-token`. The steps are in the [SEED README](../seed/README.md#slack-webhooks) and [examples/slack-app.md](../../../examples/slack-app.md).
 
 ## Cost
 

@@ -8,4 +8,6 @@ Each run reads the configured metrics from the cloud's own monitoring service an
 
 Scheduled routine reports run alongside the alerts: a heartbeat, a daily health digest of every metric, and a daily cost report per account.
 
-With one job per cloud, each routine report arrives once per cloud. Set `slack.shared_message` in each cloud's config (see `config/config.example.yaml`) and the clouds fill in one Slack message instead: the first job posts it, the others add their section, and a cloud that has not reported shows as waiting. This needs a Slack bot token rather than the webhook, because a webhook cannot edit a message.
+Each cloud runs its own routine jobs, but they share one Slack message per report. With `slack.shared_message` set in each cloud's config (see `config/config.example.yaml`), the first job to run posts the message and the others add their section to it a few minutes later, and a cloud that has not reported shows as waiting. This needs a Slack bot token rather than the webhook, because a webhook cannot edit a message ([setup](examples/slack-app.md)). Without the token, a job posts its own message to the webhook, so a report is never lost.
+
+The schedule, in New York time, is the same on every cloud: heartbeat at 00:00, 06:00, 12:00 and 18:00, health digest at 09:00 and cost report at 09:30, with the clouds a few minutes apart (AWS on the hour, GCP +2, Azure +4).
