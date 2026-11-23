@@ -111,8 +111,8 @@ metrics:
 
   # Subscription-wide events from the Activity Log (terraform/azure/org). Each query's rows are
   # counted per period, and any count above zero alerts. The log reaches the workspace 5 to 15
-  # minutes late, counted at the time it happened, so 30 minute periods leave room for late
-  # rows: only complete periods are tested.
+  # minutes late, counted at the time it happened, so the job reads these once per 30 minute
+  # period and alerts on either of the last two: a late row is caught on the next read.
   - name: azure-role-changes  # role assignments or role definitions changed (Terraform applies count too)
     provider: azure
     workspace_id: ${audit_workspace_id}
@@ -120,6 +120,8 @@ metrics:
       AzureActivity | where OperationNameValue in~ ("Microsoft.Authorization/roleAssignments/write", "Microsoft.Authorization/roleAssignments/delete", "Microsoft.Authorization/roleDefinitions/write", "Microsoft.Authorization/roleDefinitions/delete") and ActivityStatusValue in~ ("Success", "Succeeded")
     lookback: 3h
     period: 30m
+    every: 30m
+    within: 2
     category: security
     detector: threshold
     threshold: 0
@@ -135,6 +137,8 @@ metrics:
       AzureActivity | where OperationNameValue in~ ("Microsoft.Insights/diagnosticSettings/write", "Microsoft.Insights/diagnosticSettings/delete", "Microsoft.OperationalInsights/workspaces/delete") and ActivityStatusValue in~ ("Success", "Succeeded")
     lookback: 3h
     period: 30m
+    every: 30m
+    within: 2
     category: security
     detector: threshold
     threshold: 0
@@ -150,6 +154,8 @@ metrics:
       AzureActivity | where OperationNameValue in~ ("Microsoft.Network/networkSecurityGroups/securityRules/write", "Microsoft.Network/publicIPAddresses/write") and ActivityStatusValue in~ ("Success", "Succeeded")
     lookback: 3h
     period: 30m
+    every: 30m
+    within: 2
     category: security
     detector: threshold
     threshold: 0
@@ -165,6 +171,8 @@ metrics:
       AzureActivity | where OperationNameValue in~ ("Microsoft.KeyVault/vaults/write", "Microsoft.KeyVault/vaults/delete", "Microsoft.KeyVault/vaults/accessPolicies/write") and ActivityStatusValue in~ ("Success", "Succeeded")
     lookback: 3h
     period: 30m
+    every: 30m
+    within: 2
     category: security
     detector: threshold
     threshold: 0
@@ -180,6 +188,8 @@ metrics:
       AzureActivity | where OperationNameValue in~ ("Microsoft.Resources/subscriptions/resourceGroups/write", "Microsoft.Resources/subscriptions/resourceGroups/delete") and ActivityStatusValue in~ ("Success", "Succeeded")
     lookback: 3h
     period: 30m
+    every: 30m
+    within: 2
     category: security
     detector: threshold
     threshold: 0
@@ -195,6 +205,8 @@ metrics:
       AzureActivity | where CategoryValue == "Security"
     lookback: 3h
     period: 30m
+    every: 30m
+    within: 2
     category: security
     detector: threshold
     threshold: 0
@@ -210,6 +222,8 @@ metrics:
       AzureActivity | where CategoryValue == "ServiceHealth"
     lookback: 3h
     period: 30m
+    every: 30m
+    within: 2
     category: availability
     detector: threshold
     threshold: 0

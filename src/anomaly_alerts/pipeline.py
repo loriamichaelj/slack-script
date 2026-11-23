@@ -78,7 +78,8 @@ def _detect(
     detection = evaluate([p.value for p in points], spec)
     if detection is None:
         return None
-    window = points[-spec.sustained_points:]
+    end = len(points) - detection.ago
+    window = points[end - spec.sustained_points:end]
     return Anomaly(
         spec=spec,
         series=series,
@@ -100,13 +101,25 @@ class MetricOutcome:
     values: list[float] = field(default_factory=list)  # cleaned, oldest first
 
 
+def due(spec: MetricSpec, now: datetime, run_every_seconds: int) -> bool:
+    """Whether an alert run reads this metric now: every run, or with `every`, only the first
+    run after each boundary. Reading less often is what saves money where reads are billed."""
+    if not spec.every_seconds:
+        return True
+    since = (now - floor_ts(now, spec.every_seconds)).total_seconds()
+    return since < run_every_seconds
+
+
 def scan(
-    config: Config, pool: ProviderPool, now: datetime, only: str | None = None
+    config: Config, pool: ProviderPool, now: datetime, only: str | None = None, *, due_only: bool = False
 ) -> list[MetricOutcome]:
-    """Fetch and test every configured metric. Shared by anomaly runs and routine reports."""
+    """Fetch and test every configured metric. Shared by anomaly runs and routine reports;
+    alert runs pass due_only to skip the metrics that are read less often."""
     outcomes = []
     for spec in config.metrics:
         if only and spec.provider != only:
+            continue
+        if due_only and not due(spec, now, config.run_every_seconds):
             continue
         start = floor_ts(now - timedelta(seconds=spec.lookback_seconds), spec.period_seconds)
         try:
@@ -149,7 +162,7 @@ def run(
     found: list[Anomaly] = []
     scanned: set[str] = set()  # series fetched this run, by fingerprint without the direction
 
-    for outcome in scan(config, pool, now, only):
+    for outcome in scan(config, pool, now, only, due_only=True):
         if outcome.series is None:
             result.fetch_errors += 1
             continue

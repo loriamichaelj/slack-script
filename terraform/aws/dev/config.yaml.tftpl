@@ -73,9 +73,10 @@ metrics:
     min_abs_change: 1
 
   # Account-wide audit events from the platform-audit trail (terraform/aws/org audit.tf). Each
-  # match counts 1, and any count above zero alerts. Each adds about $0.09 a month in reads.
-  # CloudTrail delivers events 5 to 15 minutes late, counted at the time they happened, so 30
-  # minute periods leave room for late ones: only complete periods are tested.
+  # match counts 1, and any count above zero alerts. Each adds about $0.015 a month in reads.
+  # CloudTrail delivers events 5 to 15 minutes late, counted at the time they happened. The job
+  # reads these once per 30 minute period and alerts on either of the last two, so a late event
+  # is caught on the next read, and reads (which CloudWatch bills) drop from 12 to 2 an hour.
   - name: aws-RootOrNoMfaSignIn  # the root user did something, or someone signed in without MFA
     provider: aws
     region: ${region}
@@ -84,6 +85,8 @@ metrics:
     stat: Sum
     lookback: 3h
     period: 30m
+    every: 30m
+    within: 2
     category: security
     detector: threshold
     threshold: 0
@@ -100,6 +103,8 @@ metrics:
     stat: Sum
     lookback: 3h
     period: 30m
+    every: 30m
+    within: 2
     category: security
     detector: threshold
     threshold: 0
@@ -116,6 +121,8 @@ metrics:
     stat: Sum
     lookback: 3h
     period: 30m
+    every: 30m
+    within: 2
     category: security
     detector: threshold
     threshold: 0
@@ -132,6 +139,8 @@ metrics:
     stat: Sum
     lookback: 3h
     period: 30m
+    every: 30m
+    within: 2
     category: security
     detector: threshold
     threshold: 0
@@ -148,6 +157,8 @@ metrics:
     stat: Sum
     lookback: 3h
     period: 30m
+    every: 30m
+    within: 2
     category: security
     detector: threshold
     threshold: 0
@@ -164,6 +175,8 @@ metrics:
     stat: Sum
     lookback: 3h
     period: 30m
+    every: 30m
+    within: 2
     category: security
     detector: threshold
     threshold: 0
@@ -180,6 +193,8 @@ metrics:
     stat: Sum
     lookback: 3h
     period: 30m
+    every: 30m
+    within: 2
     category: security
     detector: threshold
     threshold: 0

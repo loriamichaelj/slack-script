@@ -195,3 +195,43 @@ class ThresholdMessageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReadLessTests(unittest.TestCase):
+    def test_within_catches_a_breach_in_an_earlier_period(self):
+        spec = limit_spec(within=2)
+        found = evaluate([0, 0, 3, 0], spec)  # the event's period is no longer the newest
+        self.assertIsNotNone(found)
+        self.assertEqual((found.observed, found.ago), (3, 1))
+        self.assertIsNone(evaluate([3, 0, 0], spec))  # older than `within`
+        self.assertEqual(evaluate([0, 3, 5], spec).ago, 0)  # the newest wins
+
+    def test_window_points_at_the_period_that_breached(self):
+        spec = limit_spec(within=2)
+        values = [0, 0, 3, 0]
+        from helpers import make_points
+        points = make_points(values)
+        anomaly = pipeline._detect(spec, make_series(values), points, points[0].ts, NOW)
+        self.assertEqual(anomaly.window_start, points[2].ts)
+
+    def test_due_reads_once_per_boundary(self):
+        spec = limit_spec(every_seconds=1800)
+        at = lambda h, m, s=0: datetime(2026, 11, 23, h, m, s, tzinfo=UTC)
+        self.assertTrue(pipeline.due(spec, at(19, 0, 46), 300))
+        self.assertFalse(pipeline.due(spec, at(19, 5, 46), 300))
+        self.assertFalse(pipeline.due(spec, at(19, 25, 46), 300))
+        self.assertTrue(pipeline.due(spec, at(19, 30, 40), 300))
+        self.assertTrue(pipeline.due(limit_spec(), at(19, 5, 46), 300))  # no `every`: every run
+
+    def load(self, text):
+        return ThresholdConfigTests.load(self, text)
+
+    def test_config_rules_for_every_and_within(self):
+        loader = self
+        cfg = loader.load(THRESHOLD_CONFIG + "    every: 30m\n    within: 2\n    period: 30m\n    lookback: 3h\n")
+        spec = cfg.metrics[0]
+        self.assertEqual((spec.every_seconds, spec.within, cfg.run_every_seconds), (1800, 2, 300))
+        with self.assertRaises(config.ConfigError):
+            loader.load(THRESHOLD_CONFIG + "    every: 7m\n")  # not a whole number of 5m periods
+        with self.assertRaises(config.ConfigError):
+            loader.load(THRESHOLD_CONFIG.replace("    detector: threshold\n", "") + "    within: 2\n")

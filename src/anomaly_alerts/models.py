@@ -30,6 +30,8 @@ class MetricSpec:
     fill_missing: str = "drop"  # "drop" or "zero"
     runbook: str | None = None
     severity: str | None = None  # fixed severity; None derives it from how far the values went
+    every_seconds: int | None = None  # alert runs read it once per this long; None reads every run
+    within: int = 1  # fixed limit only: alert when any of the last this many periods breached
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,7 @@ class Detection:
     center: float
     spread: float
     breaching: int  # consecutive breaching points
+    ago: int = 0  # how many periods before the newest the breach ended (with `within`)
 
 
 @dataclass
