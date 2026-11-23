@@ -26,3 +26,9 @@ variable "billing_table" {
   type        = string
   default     = "tensile-runway-511902-q9.shiptrack_billing_export.gcp_billing_export_v1_01B37B_E44281_12EC5F"
 }
+
+variable "second_billing_table" {
+  description = "Cloud Billing export table of the second billing account (My Billing Account), which pays for projects in the skills project's account. terraform/gcp/org grants read access to it."
+  type        = string
+  default     = "skills-mjl-27850.billing_export.gcp_billing_export_v1_0197A6_C9B1CC_56B1EE"
+}
