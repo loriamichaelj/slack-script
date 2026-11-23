@@ -62,6 +62,9 @@ class AzureProvider:
         }
         if sel.get("namespace"):
             kwargs["metric_namespace"] = sel["namespace"]
+        if sel.get("filter"):
+            # A dimension filter, such as state eq 'Failed'. It leaves one series to read.
+            kwargs["filter"] = sel["filter"]
         response = self._client.query_resource(resource_id, **kwargs)
 
         points: list[Point] = []

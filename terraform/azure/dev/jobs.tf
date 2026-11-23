@@ -39,6 +39,8 @@ locals {
     state_url          = "${azurerm_storage_account.app.primary_blob_endpoint}${azurerm_storage_container.app.name}/state/alerts.json"
     state_account_id   = azurerm_storage_account.app.id
     subscription_scope = data.azurerm_subscription.current.id
+    # Built from names, not from the jobs, which read this config: that would be a cycle.
+    jobs_scope = "${data.azurerm_resource_group.dev.id}/providers/Microsoft.App/jobs"
     # The workspace terraform/azure/org sends the Activity Log to, by resource ID. It is built,
     # not looked up, so this root applies whether or not that one has been applied yet; until
     # it is, the audit metrics show as fetch errors in the heartbeat.

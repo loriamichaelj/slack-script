@@ -40,6 +40,13 @@ class AzureProviderTests(unittest.TestCase):
         self.assertEqual(kwargs["timespan"], (NOW - timedelta(hours=6), NOW))
         self.assertNotIn("metric_namespace", kwargs)
 
+    def test_dimension_filter_is_passed_when_set(self):
+        fake = FakeClient([])
+        AzureProvider(client=fake).fetch(self.spec(filter="state eq 'Failed'"), NOW, NOW)
+        self.assertEqual(fake.call[1]["filter"], "state eq 'Failed'")
+        AzureProvider(client=fake).fetch(self.spec(), NOW, NOW)
+        self.assertNotIn("filter", fake.call[1])
+
     def test_namespace_is_passed_when_set(self):
         fake = FakeClient([])
         AzureProvider(client=fake).fetch(self.spec(namespace="Custom/Ns"), NOW, NOW)
