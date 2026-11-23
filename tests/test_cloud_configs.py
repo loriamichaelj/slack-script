@@ -141,6 +141,23 @@ class CloudConfigTests(unittest.TestCase):
                 self.assertGreaterEqual(spec.min_abs_change, 1)
                 self.assertEqual(spec.sustained_points, 3)  # so one or two missed runs stay quiet
 
+    def test_the_schedule_check_counts_one_run_per_period(self):
+        schedules = {"gcp": 600, "aws": 300, "azure": 300}  # how often each alert job runs
+        for cloud, name in SCHEDULE_CHECK.items():
+            cfg = load(cloud)
+            spec = next(m for m in cfg.metrics if m.name == name)
+            with self.subTest(cloud=cloud):
+                self.assertEqual(cfg.run_every_seconds, schedules[cloud])
+                if cloud == "gcp":
+                    self.assertEqual(spec.period_seconds, schedules[cloud])
+        jobs = (TERRAFORM / "gcp" / "dev" / "jobs.tf").read_text()
+        self.assertIn('schedule = "*/10 * * * *"', jobs)
+
+    def test_the_gcp_alert_job_gets_the_bot_token_for_threads(self):
+        jobs = (TERRAFORM / "gcp" / "dev" / "jobs.tf").read_text()
+        block = re.search(r'"anomaly-run" = \{(.*?)\n    \}', jobs, re.S).group(1)
+        self.assertIn('SLACK_BOT_TOKEN   = "slack-bot-token"', block)
+
     def test_the_duration_metric_only_cares_about_a_real_slowdown(self):
         spec = next(m for m in load("aws").metrics if m.name == "lambda-duration")
         self.assertEqual(spec.direction, "spike")

@@ -11,10 +11,16 @@ locals {
   }
 
   jobs = {
+    # Every 10 minutes, not 5: each run pays about a minute of Cloud Run start-up whatever it
+    # does, so the run count is the cost. Half the runs keep the CPU inside the free tier.
+    # The bot token lets alerts be threads that follow up and resolve (slack.alert_threads).
     "anomaly-run" = {
       args     = ["--config", local.config_path]
-      schedule = "*/5 * * * *" # matches the 5 minute metric period
-      secrets  = { SLACK_WEBHOOK_URL = "slack-webhook" }
+      schedule = "*/10 * * * *"
+      secrets = {
+        SLACK_WEBHOOK_URL = "slack-webhook"
+        SLACK_BOT_TOKEN   = "slack-bot-token"
+      }
     }
     "routine-heartbeat" = {
       args     = ["routine", "--kind", "heartbeat", "--config", local.config_path]
