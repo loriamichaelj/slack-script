@@ -19,7 +19,7 @@ The routine jobs share one Slack message with the other clouds (`slack.shared_me
 - the app bucket `slack-anomaly-dev-anomaly-app`, with `config.yaml` (rendered from `config.yaml.tftpl`) and the cooldown state at `state/alerts.json`
 - the four schedules, and the `slack-anomaly-scheduler` role they start the Lambda as (it may only invoke that function)
 
-The Lambda runs as `anomaly-runtime`, and the webhook secrets come from SEED. The function reads the config from S3 and the webhook URLs from Secrets Manager at the start of each run, so editing the template changes metrics without a code deploy.
+The Lambda runs as `anomaly-runtime`, and the webhook secrets come from SEED. The function reads the config from S3 and the webhook URLs and bot token from SSM Parameter Store (free SecureStrings under `/anomaly-alerts`) at the start of each run, so editing the template changes metrics without a code deploy.
 
 ## How it gets deployed
 
@@ -29,15 +29,7 @@ The Lambda runs as `anomaly-runtime`, and the webhook secrets come from SEED. Th
 ## Prerequisites
 
 - SEED applied, including the app-bucket access on `anomaly-runtime` and the scheduler role permission on `dev-deployer`.
-- Both webhook secrets have a value. Add them from your own terminal so the URLs never pass through anything else:
-
-```bash
-read -rs URL   # paste the incoming webhook URL, press Enter
-aws secretsmanager put-secret-value --secret-id slack-webhook --secret-string "$URL"
-read -rs URL
-aws secretsmanager put-secret-value --secret-id slack-routine-webhook --secret-string "$URL"
-unset URL
-```
+- The webhook URLs and the bot token are in SSM Parameter Store under `/anomaly-alerts` (see `terraform/aws/seed/README.md` for the commands).
 
 ## Cost
 
