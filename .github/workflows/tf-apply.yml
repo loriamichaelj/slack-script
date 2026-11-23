@@ -13,7 +13,7 @@ on:
       target:
         description: Root to apply
         type: choice
-        options: [gcp/seed, gcp/dev, aws/seed, aws/dev, azure/dev]
+        options: [gcp/seed, gcp/dev, aws/seed, aws/dev, aws/org, azure/dev, azure/org]
 
 permissions:
   contents: read

@@ -8,7 +8,7 @@ Activity Log data is free to ingest and keep for 90 days, so this costs nothing 
 
 Entra ID sign-in and audit logs are not included: exporting them needs an Entra ID P1 license.
 
-Apply this from your machine, not from GitHub: it changes subscription-wide logging, which the GitHub identities are not allowed to do.
+`.github/workflows/tf-apply.yml` applies it when a push to `dev` changes this directory, as `seed-admin` (Owner of the subscription) in the `SEED` environment, so each apply waits for your approval. Pull requests get a read-only plan. To apply by hand instead, from your machine:
 
 The state goes in the SEED container, so you need blob data access to it. If `terraform init` fails with `AuthorizationPermissionMismatch`, grant it to yourself first (it takes a minute to apply):
 
