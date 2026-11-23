@@ -78,6 +78,114 @@ metrics:
     fill_missing: zero
     min_abs_change: 1
 
+  # Public sites, checked from 3 regions every 5 minutes (terraform/gcp/org uptime.tf). The
+  # value is the share of regions that passed: alert when most fail for 10 minutes.
+  - name: site-up
+    provider: gcp
+    project: ${project_id}
+    metric_type: monitoring.googleapis.com/uptime_check/check_passed
+    aligner: ALIGN_FRACTION_TRUE
+    reducer: REDUCE_MEAN
+    group_by: [resource.labels.host]
+    category: availability
+    detector: threshold
+    threshold: 0.5
+    direction: drop
+    sustained_points: 2
+    severity: critical
+
+  # Audit events from every org project, as log-based metrics on the org log bucket
+  # (terraform/gcp/org audit.tf). Any one alerts, split by the project it came from.
+  - name: audit-iam-changes  # IAM or org policy changed on the org, a folder or a project
+    provider: gcp
+    project: ${project_id}
+    metric_type: logging.googleapis.com/user/audit-iam-changes
+    aligner: ALIGN_DELTA
+    group_by: [metric.labels.source]
+    lookback: 1h
+    category: security
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: warning
+
+  - name: audit-new-footprint  # project created, moved or deleted, or an API turned on
+    provider: gcp
+    project: ${project_id}
+    metric_type: logging.googleapis.com/user/audit-new-footprint
+    aligner: ALIGN_DELTA
+    group_by: [metric.labels.source]
+    lookback: 1h
+    category: security
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: warning
+
+  - name: audit-sa-key-created  # a service account key, the credential most often leaked
+    provider: gcp
+    project: ${project_id}
+    metric_type: logging.googleapis.com/user/audit-sa-key-created
+    aligner: ALIGN_DELTA
+    group_by: [metric.labels.source]
+    lookback: 1h
+    category: security
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: critical
+
+  - name: audit-logging-changed  # a log sink, bucket or exclusion changed: logs could stop arriving
+    provider: gcp
+    project: ${project_id}
+    metric_type: logging.googleapis.com/user/audit-logging-changed
+    aligner: ALIGN_DELTA
+    group_by: [metric.labels.source]
+    lookback: 1h
+    category: security
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: critical
+
+  - name: audit-made-public  # a bucket opened to everyone, or a firewall rule opened to 0.0.0.0/0
+    provider: gcp
+    project: ${project_id}
+    metric_type: logging.googleapis.com/user/audit-made-public
+    aligner: ALIGN_DELTA
+    group_by: [metric.labels.source]
+    lookback: 1h
+    category: security
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: critical
+
+  - name: audit-kms-key-destroyed  # a KMS key version scheduled for destruction
+    provider: gcp
+    project: ${project_id}
+    metric_type: logging.googleapis.com/user/audit-kms-key-destroyed
+    aligner: ALIGN_DELTA
+    group_by: [metric.labels.source]
+    lookback: 1h
+    category: security
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: critical
+
 cost:
   lag_days: 2            # the GCP billing export runs about a day behind
   accounts:
@@ -86,3 +194,8 @@ cost:
       billing_table: ${billing_table}
       budget: 5
       job_project: ${project_id}  # query from here: read-only access to the table is enough
+    - name: gcp-my-billing
+      provider: gcp
+      billing_table: ${second_billing_table}
+      budget: 5
+      job_project: ${project_id}

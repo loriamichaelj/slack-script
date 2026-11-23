@@ -30,6 +30,13 @@ gcloud observability scopes update _Default --location=global \
   --trace-scope=projects/slack-anomaly-dev/locations/global/traceScopes/org --project=slack-anomaly-dev
 ```
 
-It also gives `anomaly-runtime` read-only access to the billing export dataset (`billing_dataset`), which lives in another org project.
+It also gives `anomaly-runtime` read-only access to each billing account's export dataset (`billing_datasets`), which live in other org projects.
+
+Platform signals the alert job reads from the scoping project:
+
+- **Audit events** (`audit.tf`): log-based metrics on the `org-logs` bucket, one per event that matters every time: IAM or org policy changes, service account keys created, logging changed, something made public, new projects or APIs, KMS keys destroyed. Each is split by the project it came from, and any count above zero alerts.
+- **Uptime** (`uptime.tf`): an HTTPS check of each site in `uptime_hosts` every 5 minutes from 3 regions.
+
+Projects outside the org (they have no organization parent) are not covered by the sink, the scope or the audit metrics. Move them into the org to cover them.
 
 Apply SEED first, because the state lives in its bucket. Re-apply when a project is added to the org. To leave a project out, add it to `exclude_projects`.
