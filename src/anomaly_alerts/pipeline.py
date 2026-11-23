@@ -14,6 +14,7 @@ from .models import SEVERITY_RANK, Anomaly, MetricSpec, Point, Series, series_na
 from .providers import ProviderPool
 from .slack import blocks
 from .slack.client import SlackError
+from .slack.threads import RESOLVE_AFTER, AlertThreads, escalated
 from .state import StateStore
 
 log = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ class RunResult:
     over_limit: int = 0
     posted: int = 0
     post_errors: int = 0
+    resolved: int = 0
 
     @property
     def ok(self) -> bool:
@@ -131,16 +133,22 @@ def run(
     *,
     dry_run: bool = False,
     only: str | None = None,
+    threads: AlertThreads | None = None,
 ) -> RunResult:
+    """One alert pass. With threads (the bot token), each alert is a thread that is followed up
+    and resolved; without, each alert is a new webhook message."""
     now = now or datetime.now(UTC)
     result = RunResult()
     found: list[Anomaly] = []
+    scanned: set[str] = set()  # series fetched this run, by fingerprint without the direction
 
     for outcome in scan(config, pool, now, only):
         if outcome.series is None:
             result.fetch_errors += 1
             continue
         result.fetched += 1
+        s = outcome.series
+        scanned.add("|".join((s.provider, s.scope, s.resource, s.metric)))
         if outcome.anomaly:
             found.append(outcome.anomaly)
     result.anomalies = len(found)
@@ -157,16 +165,28 @@ def run(
     to_send, held_back = fresh[:cap], fresh[cap:]
     result.over_limit = len(held_back)
 
+    firing = {a.fingerprint for a in found}
+    for anomaly in found:
+        state.still_firing(anomaly.fingerprint)  # an open thread stays open while it fires
+
     for anomaly in to_send:
+        payload = blocks.build_payload(anomaly, actions.steps_for(anomaly, rules))
+        name = series_name(anomaly.spec, anomaly.series)
         try:
-            post(blocks.build_payload(anomaly, actions.steps_for(anomaly, rules)))
+            if threads is not None and not dry_run:
+                _send_threaded(threads, state, anomaly, payload, post, now)
+            else:
+                post(payload)
         except SlackError as exc:
-            log.error("%s: could not post alert: %s", series_name(anomaly.spec, anomaly.series), exc)
+            log.error("%s: could not post alert: %s", name, exc)
             result.post_errors += 1
             continue
         result.posted += 1
         if not dry_run:
             state.record(anomaly.fingerprint, anomaly.severity, now)
+
+    if threads is not None and not dry_run:
+        result.resolved = _resolve_quiet(threads, state, firing, scanned, now)
 
     if held_back:
         try:
@@ -178,3 +198,46 @@ def run(
     if not dry_run:
         state.save(now)
     return result
+
+
+def _send_threaded(
+    threads: AlertThreads, state: StateStore, anomaly: Anomaly, payload: dict,
+    post: Callable[[dict], None], now: datetime,
+) -> None:
+    """Open a thread, or follow up in the open one. If the bot fails, the webhook still alerts."""
+    fp = anomaly.fingerprint
+    open_thread = state.thread(fp)
+    try:
+        if open_thread is None:
+            ts = threads.open(fp, payload)
+            state.open_thread(fp, ts, payload, now)
+        else:
+            opened = datetime.fromisoformat(open_thread["opened"])
+            was = open_thread.get("severity")
+            threads.follow_up(fp, open_thread["ts"], anomaly, payload, opened, now, escalated(was, anomaly.severity))
+            state.update_thread(fp, payload)
+    except SlackError as exc:
+        log.warning("%s: bot post failed (%s); posting to the webhook instead",
+                    series_name(anomaly.spec, anomaly.series), exc)
+        post(payload)
+
+
+def _resolve_quiet(
+    threads: AlertThreads, state: StateStore, firing: set[str], scanned: set[str], now: datetime
+) -> int:
+    """Close the threads whose metric was read this run and has been quiet long enough. A
+    metric that could not be read says nothing either way, so its thread stays open."""
+    resolved = 0
+    for fp, entry in list(state.open_threads().items()):
+        if fp in firing or fp.rsplit("|", 1)[0] not in scanned:
+            continue
+        if state.quiet_run(fp) < RESOLVE_AFTER:
+            continue
+        try:
+            threads.resolve(fp, entry["ts"], entry.get("payload") or {}, datetime.fromisoformat(entry["opened"]), now)
+        except (SlackError, KeyError, ValueError) as exc:
+            log.warning("%s: could not mark resolved: %s", fp, exc)
+            continue
+        state.close_thread(fp)
+        resolved += 1
+    return resolved

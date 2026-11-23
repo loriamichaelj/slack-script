@@ -192,3 +192,47 @@ class ClientTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ThreadMessageTests(unittest.TestCase):
+    def test_resolved_message_keeps_the_alert_and_turns_green(self):
+        from datetime import timedelta
+        from anomaly_alerts.slack import threads
+        posted = blocks.build_payload(make_anomaly(), ["x"])
+        resolved = threads.resolved_payload(posted, NOW, NOW + timedelta(minutes=95))
+        self.assertEqual(resolved["blocks"][0]["text"]["text"], ":white_check_mark: RESOLVED · alb-5xx")
+        self.assertEqual(resolved["attachments"][0]["color"], blocks.COLORS["ok"])
+        self.assertIn("after 1 h 35 min", resolved["attachments"][0]["blocks"][0]["elements"][0]["text"])
+        self.assertTrue(resolved["text"].startswith("[RESOLVED] AWS alb-5xx"))
+        self.assertEqual(posted["blocks"][0]["text"]["text"], ":red_circle: CRITICAL · alb-5xx")  # untouched
+
+    def test_follow_up_says_how_long_and_where_it_is_now(self):
+        from datetime import timedelta
+        from anomaly_alerts.slack import threads
+        msg = threads.follow_up_text(make_anomaly(), NOW, NOW + timedelta(hours=2), escalated=False)
+        self.assertIn(":repeat: *Still firing* after 2 h: ↑ 412 (69× usual)", msg["text"])
+        up = threads.follow_up_text(make_anomaly(), NOW, NOW + timedelta(hours=1), escalated=True)
+        self.assertTrue(up["text"].startswith(":red_circle: *Now CRITICAL* after 1 h"))
+        self.assertTrue(threads.escalated("warning", "critical"))
+        self.assertFalse(threads.escalated("critical", "critical"))
+
+
+class BotReplyTests(unittest.TestCase):
+    def test_reply_posts_in_the_thread(self):
+        from anomaly_alerts.slack.bot import SlackBot
+        sent = []
+
+        class Resp:
+            status = 200
+            def __init__(self, body): self.body = body
+            def read(self): return self.body
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def opener(request, timeout):
+            sent.append(json.loads(request.data))
+            return Resp(b'{"ok": true, "ts": "2.0"}')
+
+        ts = SlackBot("xoxb-test", "C1", opener=opener).reply("1.0", {"text": "hi"}, broadcast=True)
+        self.assertEqual(ts, "2.0")
+        self.assertEqual((sent[0]["thread_ts"], sent[0]["reply_broadcast"], sent[0]["channel"]), ("1.0", True, "C1"))

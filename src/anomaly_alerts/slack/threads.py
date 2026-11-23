@@ -1,0 +1,89 @@
+"""One Slack thread per alert, from first post to resolved. Needs the bot token.
+
+With only a webhook, every alert is a new message and nothing says when it is over. With the
+bot token, the first alert is the top of a thread. While it keeps firing, each reminder after the
+cooldown goes in the thread, and the top message is updated to the latest numbers. An
+escalation to critical also shows in the channel. When the metric has been quiet for a couple
+of runs, the top message turns green and says how long it lasted.
+"""
+
+from __future__ import annotations
+
+import copy
+from datetime import datetime
+
+from ..models import CRITICAL, SPIKE, Anomaly
+from ..detectors import needs_baseline
+from . import blocks
+from .bot import SlackBot
+
+EVENT_TYPE = "anomaly_alerts_alert"
+RESOLVE_AFTER = 2  # quiet runs in a row before an alert counts as resolved
+
+
+def _metadata(fingerprint: str) -> dict:
+    return {"event_type": EVENT_TYPE, "event_payload": {"fingerprint": fingerprint}}
+
+
+def follow_up_text(anomaly: Anomaly, opened: datetime, now: datetime, escalated: bool) -> dict:
+    det, spec, series = anomaly.detection, anomaly.spec, anomaly.series
+    unit = f" {blocks.esc(series.unit)}" if series.unit else ""
+    change = blocks.change_text(det.observed, det.center, det.direction, not needs_baseline(spec.detector), unit)
+    arrow = "↑" if det.direction == SPIKE else "↓"
+    lasted = blocks.duration((now - opened).total_seconds())
+    if escalated:
+        head = f":red_circle: *Now {det.severity.upper()}* after {lasted}"
+    else:
+        head = f":repeat: *Still firing* after {lasted}"
+    text = f"{head}: {arrow} {blocks.fmt(det.observed)}{unit} ({change})"
+    return {"text": text, "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]}
+
+
+def resolved_payload(posted: dict, opened: datetime, now: datetime) -> dict:
+    """The alert as posted, turned green, with when it resolved and how long it lasted."""
+    payload = copy.deepcopy(posted)
+    lasted = blocks.duration((now - opened).total_seconds())
+    header = payload.get("blocks", [{}])[0]
+    if header.get("type") == "header":
+        name = header["text"]["text"].split(" · ", 1)[-1]
+        header["text"]["text"] = f":white_check_mark: RESOLVED · {name}"[:150]
+    for attachment in payload.get("attachments", []):
+        attachment["color"] = blocks.COLORS["ok"]
+        attachment.setdefault("blocks", []).insert(
+            0,
+            {
+                "type": "context",
+                "elements": [
+                    {"type": "mrkdwn", "text": f":white_check_mark: Resolved {blocks.when(now)}, after {lasted}"}
+                ],
+            },
+        )
+    payload["text"] = "[RESOLVED] " + str(payload.get("text", "")).split("] ", 1)[-1]
+    return payload
+
+
+class AlertThreads:
+    """The Slack calls an alert's thread needs. Every method raises SlackError on failure."""
+
+    def __init__(self, bot: SlackBot):
+        self.bot = bot
+
+    def open(self, fingerprint: str, payload: dict) -> str:
+        return self.bot.post(payload, _metadata(fingerprint))
+
+    def follow_up(
+        self, fingerprint: str, ts: str, anomaly: Anomaly, payload: dict, opened: datetime, now: datetime,
+        escalated: bool,
+    ) -> None:
+        self.bot.update(ts, payload, _metadata(fingerprint))
+        self.bot.reply(ts, follow_up_text(anomaly, opened, now, escalated), broadcast=escalated)
+
+    def resolve(self, fingerprint: str, ts: str, posted: dict, opened: datetime, now: datetime) -> None:
+        self.bot.update(ts, resolved_payload(posted, opened, now), _metadata(fingerprint))
+        lasted = blocks.duration((now - opened).total_seconds())
+        text = f":white_check_mark: *Resolved* after {lasted}: back within its normal range."
+        self.bot.reply(ts, {"text": text, "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]})
+
+
+def escalated(previous: str | None, current: str) -> bool:
+    return current == CRITICAL and previous != CRITICAL

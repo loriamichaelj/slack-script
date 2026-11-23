@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 from . import actions, config, pipeline, routine, runtime, watchdog
 from .cost import CostProviderPool
 from .providers import ProviderPool
-from .slack import bot, client, shared
+from .slack import bot, client, shared, threads
 from .state import StateStore
 
 log = logging.getLogger("anomaly_alerts")
@@ -121,6 +121,19 @@ def _shared_publisher(cfg: config.Config, kind: str, dry_run: bool):
     return publish
 
 
+def _alert_threads(cfg: config.Config, dry_run: bool):
+    """Threads for the alerts when the config asks for them and the bot token is set, else None
+    (each alert is then a webhook message, as before)."""
+    settings = cfg.slack.alert_threads
+    if settings is None or dry_run:
+        return None
+    token = os.environ.get(settings.bot_token_env, "")
+    if not token:
+        log.warning("%s is not set; alerts go to the webhook without threads", settings.bot_token_env)
+        return None
+    return threads.AlertThreads(bot.SlackBot(token, settings.channel))
+
+
 def main(argv=None) -> int:
     args = _parse(argv)
     logging.basicConfig(
@@ -181,13 +194,14 @@ def main(argv=None) -> int:
     state = StateStore(cfg.state_path, cfg.slack.cooldown_seconds)
     state.load()
     result = pipeline.run(
-        cfg, ProviderPool(), rules, state, post, dry_run=args.dry_run, only=args.only
+        cfg, ProviderPool(), rules, state, post, dry_run=args.dry_run, only=args.only,
+        threads=_alert_threads(cfg, args.dry_run),
     )
     log.info(
         "run complete: %d metrics fetched, %d anomalies, %d posted, %d in cooldown, %d over limit, "
-        "%d fetch errors, %d post errors",
+        "%d resolved, %d fetch errors, %d post errors",
         result.fetched, result.anomalies, result.posted, result.in_cooldown,
-        result.over_limit, result.fetch_errors, result.post_errors,
+        result.over_limit, result.resolved, result.fetch_errors, result.post_errors,
     )
     if not args.dry_run:
         watchdog.ping(result.ok)

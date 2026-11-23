@@ -61,7 +61,7 @@ class CliPingTests(unittest.TestCase):
         import base64
 
         env = {"ANOMALY_CONFIG_B64": base64.b64encode(self.CONFIG.encode()).decode(), "SLACK_WEBHOOK_URL": "x", **(env or {})}
-        result = mock.Mock(ok=ok, fetched=1, anomalies=0, posted=0, in_cooldown=0, over_limit=0, fetch_errors=0 if ok else 1, post_errors=0)
+        result = mock.Mock(ok=ok, fetched=1, anomalies=0, posted=0, in_cooldown=0, over_limit=0, resolved=0, fetch_errors=0 if ok else 1, post_errors=0)
         with mock.patch.dict(os.environ, env, clear=True), \
                 mock.patch("anomaly_alerts.cli.pipeline.run", return_value=result), \
                 mock.patch("anomaly_alerts.cli.ProviderPool"), mock.patch("anomaly_alerts.cli.StateStore"), \

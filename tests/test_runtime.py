@@ -144,7 +144,8 @@ class CliUsesRuntimeTests(unittest.TestCase):
                 mock.patch("anomaly_alerts.cli.ProviderPool"), \
                 mock.patch("anomaly_alerts.cli.StateStore"):
             run.return_value = mock.Mock(
-                ok=True, fetched=1, anomalies=0, posted=0, in_cooldown=0, over_limit=0, fetch_errors=0, post_errors=0
+                ok=True, fetched=1, anomalies=0, posted=0, in_cooldown=0, over_limit=0, resolved=0,
+                fetch_errors=0, post_errors=0,
             )
             code, _, _ = self.run_cli({"ANOMALY_CONFIG_B64": encoded()})
         self.assertEqual(code, 0)
