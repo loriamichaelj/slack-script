@@ -236,3 +236,23 @@ class BotReplyTests(unittest.TestCase):
         ts = SlackBot("xoxb-test", "C1", opener=opener).reply("1.0", {"text": "hi"}, broadcast=True)
         self.assertEqual(ts, "2.0")
         self.assertEqual((sent[0]["thread_ts"], sent[0]["reply_broadcast"], sent[0]["channel"]), ("1.0", True, "C1"))
+
+
+class GroupMessageTests(unittest.TestCase):
+    def test_summary_lists_each_alert_and_counts_the_resolved(self):
+        from datetime import timedelta
+        from anomaly_alerts.slack import threads
+        line = threads.summary_line(make_anomaly())
+        self.assertEqual(line, ":red_circle: *alb-5xx* (AWS) · 69× usual")
+        members = [
+            {"ts": "1", "line": line, "severity": "critical"},
+            {"line": ":large_orange_circle: *mem* (AWS) · +50% vs usual", "severity": "warning",
+             "resolved_line": threads.resolved_line(":large_orange_circle: *mem* (AWS) · +50% vs usual", NOW, NOW + timedelta(minutes=40))},
+        ]
+        payload = threads.group_payload(members)
+        self.assertEqual(payload["blocks"][0]["text"]["text"], ":red_circle: 2 alerts at once · 1 resolved")
+        body = payload["attachments"][0]["blocks"][0]["text"]["text"]
+        self.assertIn(":white_check_mark: *mem* (AWS) · resolved after 40 min", body)
+        self.assertEqual(payload["attachments"][0]["color"], blocks.COLORS["critical"])
+        done = threads.group_payload([{**members[0], "ts": None, "resolved_line": "x"}, members[1]])
+        self.assertEqual(done["blocks"][0]["text"]["text"], ":white_check_mark: RESOLVED · 2 alerts")

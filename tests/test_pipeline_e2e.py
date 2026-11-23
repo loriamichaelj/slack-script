@@ -181,13 +181,27 @@ class FakeThreads:
         self.calls.append(("open", payload["text"]))
         return f"ts-{self.count}"
 
-    def follow_up(self, fingerprint, ts, anomaly, payload, opened, now, escalated):
+    def follow_up(self, fingerprint, ts, anomaly, payload, opened, now, escalated, group=None):
         self._maybe_fail()
-        self.calls.append(("follow_up", ts, escalated))
+        self.calls.append(("follow_up", ts, escalated, group))
 
-    def resolve(self, fingerprint, ts, posted, opened, now):
+    def resolve(self, fingerprint, ts, posted, opened, now, group=None):
         self._maybe_fail()
-        self.calls.append(("resolve", ts, posted["text"]))
+        self.calls.append(("resolve", ts, posted["text"], group))
+
+    def open_group(self, payload):
+        self._maybe_fail()
+        self.calls.append(("open_group", payload["text"]))
+        return "group-1"
+
+    def add_to_group(self, group, payload):
+        self._maybe_fail()
+        self.count += 1
+        self.calls.append(("add_to_group", group, payload["text"]))
+        return f"ts-{self.count}"
+
+    def update_group(self, group, payload):
+        self.calls.append(("update_group", group, payload["blocks"][0]["text"]["text"]))
 
 
 QUIET_72 = (BASE + [12] * 12)[:72]
@@ -251,3 +265,63 @@ class ThreadTests(unittest.TestCase):
     def test_without_threads_nothing_changes(self):
         self.run_once([make_spec()], FakeProvider({"cpu": make_series(SPIKE_72)}))
         self.assertEqual(len(self.posted), 1)
+
+
+class GroupTests(unittest.TestCase):
+    config = PipelineTests.config
+    run_once = PipelineTests.run_once
+
+    def setUp(self):
+        PipelineTests.setUp(self)
+        self.threads = FakeThreads()
+        self.specs = [make_spec(name="cpu"), make_spec(name="mem", selector={"region": "us-east-1", "namespace": "AWS/EC2", "metric": "Mem"})]
+
+    def run_at(self, minutes, cpu, mem):
+        provider = FakeProvider({"cpu": make_series(cpu), "mem": make_series(mem, metric="Mem")})
+        return self.run_once(self.specs, provider, now=NOW + timedelta(minutes=minutes), threads=self.threads)
+
+    def kinds(self):
+        return [c[0] for c in self.threads.calls]
+
+    def test_alerts_that_fire_together_arrive_as_one_group(self):
+        result = self.run_at(0, SPIKE_72, SPIKE_72)
+        self.assertEqual(result.posted, 2)
+        self.assertEqual(self.kinds(), ["open_group", "add_to_group", "add_to_group"])
+        self.assertEqual(self.threads.calls[0][1], "2 alerts at once")
+        self.assertEqual(self.posted, [])
+
+    def test_a_lone_alert_is_not_a_group(self):
+        self.run_at(0, SPIKE_72, QUIET_72)
+        self.assertEqual(self.kinds(), ["open"])
+
+    def test_members_resolve_in_the_group_thread_and_the_summary_follows(self):
+        self.run_at(0, SPIKE_72, SPIKE_72)
+        self.run_at(5, QUIET_72, SPIKE_72)
+        self.run_at(10, QUIET_72, SPIKE_72)  # cpu resolves
+        self.assertIn(("resolve", "ts-1", self.threads.calls[1][2], "group-1"), self.threads.calls)
+        updates = [c[2] for c in self.threads.calls if c[0] == "update_group"]
+        self.assertEqual(updates[-1], ":red_circle: 2 alerts at once · 1 resolved")
+        self.run_at(15, QUIET_72, QUIET_72)
+        self.run_at(20, QUIET_72, QUIET_72)  # mem resolves
+        updates = [c[2] for c in self.threads.calls if c[0] == "update_group"]
+        self.assertEqual(updates[-1], ":white_check_mark: RESOLVED · 2 alerts")
+
+    def test_a_follow_up_goes_to_the_group_thread(self):
+        self.run_at(0, SPIKE_72, SPIKE_72)
+        self.run_at(61, SPIKE_72, SPIKE_72)
+        follow = [c for c in self.threads.calls if c[0] == "follow_up"]
+        self.assertEqual({c[3] for c in follow}, {"group-1"})
+        self.assertEqual(len(follow), 2)
+
+    def test_if_the_summary_fails_each_alert_goes_to_the_webhook(self):
+        self.threads.fail = True
+        result = self.run_at(0, SPIKE_72, SPIKE_72)
+        self.assertEqual((result.posted, len(self.posted), result.post_errors), (2, 2, 0))
+
+    def test_if_bot_and_webhook_both_fail_it_is_an_error_not_a_crash(self):
+        self.threads.fail = True
+        def broken(payload):
+            raise SlackError("webhook down")
+        result = self.run_once(self.specs, FakeProvider({"cpu": make_series(SPIKE_72), "mem": make_series(SPIKE_72, metric="Mem")}),
+                               threads=self.threads, post=broken)
+        self.assertEqual((result.posted, result.post_errors), (0, 2))

@@ -14,7 +14,14 @@ from .models import SEVERITY_RANK, Anomaly, MetricSpec, Point, Series, series_na
 from .providers import ProviderPool
 from .slack import blocks
 from .slack.client import SlackError
-from .slack.threads import RESOLVE_AFTER, AlertThreads, escalated
+from .slack.threads import (
+    RESOLVE_AFTER,
+    AlertThreads,
+    escalated,
+    group_payload,
+    resolved_line,
+    summary_line,
+)
 from .state import StateStore
 
 log = logging.getLogger(__name__)
@@ -169,11 +176,21 @@ def run(
     for anomaly in found:
         state.still_firing(anomaly.fingerprint)  # an open thread stays open while it fires
 
+    threaded = threads is not None and not dry_run
+    payloads = {a.fingerprint: blocks.build_payload(a, actions.steps_for(a, rules)) for a in to_send}
+    # New alerts that fire together usually share a cause, so two or more go out as one group.
+    new = [a for a in to_send if threaded and state.thread(a.fingerprint) is None]
+    grouped = new if len(new) >= 2 else []
+    sent = _send_group(threads, state, grouped, payloads, post, now) if grouped else {}
+
     for anomaly in to_send:
-        payload = blocks.build_payload(anomaly, actions.steps_for(anomaly, rules))
+        payload = payloads[anomaly.fingerprint]
         name = series_name(anomaly.spec, anomaly.series)
         try:
-            if threads is not None and not dry_run:
+            if anomaly in grouped:
+                if not sent[anomaly.fingerprint]:  # sent above; a failure was logged there
+                    raise SlackError("bot and webhook both failed")
+            elif threaded:
                 _send_threaded(threads, state, anomaly, payload, post, now)
             else:
                 post(payload)
@@ -214,12 +231,63 @@ def _send_threaded(
         else:
             opened = datetime.fromisoformat(open_thread["opened"])
             was = open_thread.get("severity")
-            threads.follow_up(fp, open_thread["ts"], anomaly, payload, opened, now, escalated(was, anomaly.severity))
-            state.update_thread(fp, payload)
+            group = open_thread.get("group")
+            threads.follow_up(
+                fp, open_thread["ts"], anomaly, payload, opened, now, escalated(was, anomaly.severity), group,
+            )
+            state.update_thread(fp, payload, line=summary_line(anomaly))
+            if group:
+                state.record(fp, anomaly.severity, now)  # the summary shows the new severity
+                _refresh_group(threads, state, group)
     except SlackError as exc:
         log.warning("%s: bot post failed (%s); posting to the webhook instead",
                     series_name(anomaly.spec, anomaly.series), exc)
         post(payload)
+
+
+def _send_group(
+    threads: AlertThreads, state: StateStore, anomalies: list[Anomaly], payloads: dict[str, dict],
+    post: Callable[[dict], None], now: datetime,
+) -> dict[str, bool]:
+    """A summary in the channel, then each alert's details in its thread. If the bot fails,
+    each alert still goes to the webhook on its own. Returns whether each alert got out."""
+    lines = {a.fingerprint: summary_line(a) for a in anomalies}
+    members = [{"ts": "new", "line": lines[a.fingerprint], "severity": a.severity} for a in anomalies]
+    sent: dict[str, bool] = {}
+
+    def webhook(anomaly: Anomaly) -> bool:
+        try:
+            post(payloads[anomaly.fingerprint])
+            return True
+        except SlackError as exc:
+            log.error("%s: could not post alert: %s", series_name(anomaly.spec, anomaly.series), exc)
+            return False
+
+    try:
+        group = threads.open_group(group_payload(members))
+    except SlackError as exc:
+        log.warning("could not post the group summary (%s); posting each alert to the webhook", exc)
+        return {a.fingerprint: webhook(a) for a in anomalies}
+    for anomaly in anomalies:
+        fp = anomaly.fingerprint
+        try:
+            ts = threads.add_to_group(group, payloads[fp])
+        except SlackError as exc:
+            log.warning("%s: could not add to its group (%s); posting to the webhook",
+                        series_name(anomaly.spec, anomaly.series), exc)
+            sent[fp] = webhook(anomaly)
+            continue
+        state.open_thread(fp, ts, payloads[fp], now, group=group, line=lines[fp])
+        state.record(fp, anomaly.severity, now)
+        sent[fp] = True
+    return sent
+
+
+def _refresh_group(threads: AlertThreads, state: StateStore, group: str) -> None:
+    try:
+        threads.update_group(group, group_payload(state.group_members(group)))
+    except SlackError as exc:
+        log.warning("could not update a group summary: %s", exc)
 
 
 def _resolve_quiet(
@@ -233,11 +301,15 @@ def _resolve_quiet(
             continue
         if state.quiet_run(fp) < RESOLVE_AFTER:
             continue
+        group = entry.get("group")
         try:
-            threads.resolve(fp, entry["ts"], entry.get("payload") or {}, datetime.fromisoformat(entry["opened"]), now)
+            opened = datetime.fromisoformat(entry["opened"])
+            threads.resolve(fp, entry["ts"], entry.get("payload") or {}, opened, now, group)
         except (SlackError, KeyError, ValueError) as exc:
             log.warning("%s: could not mark resolved: %s", fp, exc)
             continue
-        state.close_thread(fp)
+        state.close_thread(fp, resolved_line(entry.get("line", ""), opened, now) if group else None)
+        if group:
+            _refresh_group(threads, state, group)
         resolved += 1
     return resolved
