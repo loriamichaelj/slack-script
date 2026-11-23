@@ -29,7 +29,8 @@ GitHub Actions for this repo, the same on every cloud.
 - `terraform-roots.json` lists every Terraform root the workflows manage: cloud, directory, the backend settings `terraform init` needs (a bucket, or an Azure storage account and container), GitHub environment and identities. It is the one place to add a root. A root marked `"apply": false` is planned in CI but applied by hand: `azure/seed` is, because it manages Entra app registrations and CI should not hold directory write rights.
 - `scripts/select-roots.sh` turns that list into a job matrix: all roots, the ones a push changed, or one picked by hand. Roots of a cloud that is not bootstrapped are dropped before any job (or approval) starts.
 - `actions/cloud-login` signs in with OIDC to GCP or AWS, with no stored keys. `actions/setup-terraform` pins the Terraform version in one place.
-- `terraform/gcp/org` is not in the list. It is applied locally by an org admin.
+- `aws/org` and `azure/org` (account and subscription audit logging) are applied like seed roots: in the `SEED` environment, by `seed-admin`, after your approval.
+- `terraform/gcp/org` is not in the list. It needs org-wide roles (Logs Configuration Writer on the org, Monitoring Admin on every project) that the GitHub service accounts do not have, so an org admin applies it locally.
 
 ## Safety defaults
 
