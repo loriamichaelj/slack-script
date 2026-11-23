@@ -48,6 +48,10 @@ actions_file: actions.yaml         # relative to this file
 # baseline, so it alerts from the first point and never learns a bad level as normal. There
 # `threshold` is the limit (required) and `direction` must be spike (above) or drop (below).
 # Any metric can set `severity: warning` or `severity: critical` to fix its alert's severity.
+# `every: 30m` makes the alert job read a metric once per 30 minutes instead of every run, which
+# saves money where reads are billed (CloudWatch). With the threshold detector, `within: 2`
+# alerts when either of the last two periods breached, so data that arrives late still counts.
+# `run_every` (top level, default 5m) says how often the alert job runs.
 defaults:
   lookback: 24h
   period: 5m

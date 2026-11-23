@@ -83,6 +83,14 @@ class CloudConfigTests(unittest.TestCase):
                 self.assertEqual(shared.clouds, ("aws", "azure", "gcp"))
                 self.assertEqual((shared.channel, shared.time_zone), ("C0123456789", "America/New_York"))
 
+    def test_audit_metrics_are_read_once_per_period_and_look_back_two(self):
+        for cloud in EXPECTED_METRICS:
+            with self.subTest(cloud=cloud):
+                audit = [m for m in load(cloud).metrics if m.category == "security"]
+                self.assertTrue(audit)
+                for m in audit:
+                    self.assertEqual((m.every_seconds, m.within, m.period_seconds), (1800, 2, 1800), m.name)
+
     def test_every_cloud_threads_its_alerts_in_the_shared_channel(self):
         for cloud in EXPECTED_METRICS:
             with self.subTest(cloud=cloud):

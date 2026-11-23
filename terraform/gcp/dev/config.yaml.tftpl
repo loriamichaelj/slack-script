@@ -101,7 +101,8 @@ metrics:
   # Audit events from every org project, as log-based metrics on the org log bucket
   # (terraform/gcp/org audit.tf). Any one alerts, split by the project it came from.
   # Log entries arrive a minute or more after they happen but count at the time they happened,
-  # so 30 minute periods leave room for late ones: only complete periods are tested.
+  # so the job reads these once per 30 minute period and alerts on either of the last two:
+  # an entry that lands late is caught on the next read.
   - name: audit-iam-changes  # IAM or org policy changed on the org, a folder or a project
     provider: gcp
     project: ${project_id}
@@ -110,6 +111,8 @@ metrics:
     group_by: [metric.labels.source]
     lookback: 3h
     period: 30m
+    every: 30m
+    within: 2
     category: security
     detector: threshold
     threshold: 0
@@ -126,6 +129,8 @@ metrics:
     group_by: [metric.labels.source]
     lookback: 3h
     period: 30m
+    every: 30m
+    within: 2
     category: security
     detector: threshold
     threshold: 0
@@ -142,6 +147,8 @@ metrics:
     group_by: [metric.labels.source]
     lookback: 3h
     period: 30m
+    every: 30m
+    within: 2
     category: security
     detector: threshold
     threshold: 0
@@ -158,6 +165,8 @@ metrics:
     group_by: [metric.labels.source]
     lookback: 3h
     period: 30m
+    every: 30m
+    within: 2
     category: security
     detector: threshold
     threshold: 0
@@ -174,6 +183,8 @@ metrics:
     group_by: [metric.labels.source]
     lookback: 3h
     period: 30m
+    every: 30m
+    within: 2
     category: security
     detector: threshold
     threshold: 0
@@ -190,6 +201,8 @@ metrics:
     group_by: [metric.labels.source]
     lookback: 3h
     period: 30m
+    every: 30m
+    within: 2
     category: security
     detector: threshold
     threshold: 0

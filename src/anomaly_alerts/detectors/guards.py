@@ -36,23 +36,29 @@ def _flat_scores(center: float, window: list[float], threshold: float) -> list[f
 
 
 def _check_limit(values: list[float], spec: MetricSpec, k: int) -> Detection | None:
-    if k < 1 or len(values) < k:
-        return None
-    window = values[-k:]
+    """The newest k values past the limit, or, with spec.within, any k in a row that end in the
+    last `within` periods: data that arrives late is still caught on the next read."""
     limit = spec.threshold
     sign = 1 if spec.direction == SPIKE else -1
-    if not all((x - limit) * sign > 0 for x in window):
-        return None
-    weakest = min((x - limit for x in window), key=abs)
-    return Detection(
-        direction=SPIKE if sign > 0 else DROP,
-        severity=WARNING,
-        score=weakest,
-        observed=window[-1],
-        center=limit,
-        spread=0.0,
-        breaching=k,
-    )
+    for ago in range(max(1, spec.within)):
+        end = len(values) - ago
+        if k < 1 or end < k:
+            return None
+        window = values[end - k:end]
+        if not all((x - limit) * sign > 0 for x in window):
+            continue
+        weakest = min((x - limit for x in window), key=abs)
+        return Detection(
+            direction=SPIKE if sign > 0 else DROP,
+            severity=WARNING,
+            score=weakest,
+            observed=window[-1],
+            center=limit,
+            spread=0.0,
+            breaching=k,
+            ago=ago,
+        )
+    return None
 
 
 def _check(values: list[float], spec: MetricSpec, detector, k: int) -> Detection | None:

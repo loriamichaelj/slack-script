@@ -21,7 +21,7 @@ class ConfigError(Exception):
     pass
 
 
-_TOP_KEYS = {"slack", "state", "alert_state", "actions_file", "defaults", "metrics", "cost"}
+_TOP_KEYS = {"slack", "state", "alert_state", "actions_file", "defaults", "metrics", "cost", "run_every"}
 _SLACK_KEYS = {
     "webhook_env", "routine_webhook_env", "cooldown_minutes", "max_alerts_per_run", "shared_message", "alert_threads",
 }
@@ -32,7 +32,7 @@ _SHARED_KEYS = {"cloud", "clouds", "channel", "bot_token_env", "time_zone"}
 _TUNING_KEYS = {
     "category", "direction", "lookback", "period", "detector", "threshold",
     "min_points", "sustained_points", "min_abs_change", "alpha", "fill_missing", "runbook",
-    "severity",
+    "severity", "every", "within",
 }
 _METRIC_KEYS = _TUNING_KEYS | {"name", "provider"}
 
@@ -105,6 +105,7 @@ class Config:
     # Where each cloud's alert job keeps its state, for a heartbeat that covers every cloud.
     # Empty means the heartbeat reads state_path as the one alert job.
     alert_state: dict[str, Path | str] = field(default_factory=dict)
+    run_every_seconds: int = 300  # how often the alert job runs: metrics with `every` use it
 
 
 def parse_duration(value, label: str) -> int:
@@ -191,6 +192,16 @@ def _build_spec(entry, defaults: dict, index: int) -> MetricSpec:
             f"{label}: lookback {lookback}s at period {period}s gives {lookback // period} points, "
             f"but min_points + sustained_points needs {min_points + sustained}"
         )
+    every = parse_duration(merged["every"], f"{label}: every") if merged.get("every") is not None else None
+    if every is not None and every % period:
+        raise ConfigError(f"{label}: every must be a whole number of periods ({period}s), got {every}s")
+    within = _number(merged, "within", 1, label, integer=True, minimum=1)
+    if within > 1 and baseline:
+        raise ConfigError(f"{label}: within needs the threshold detector, which compares each period to a limit")
+    if lookback // period < min_points + sustained + within - 1:
+        raise ConfigError(
+            f"{label}: lookback {lookback}s at period {period}s is too short for within {within}"
+        )
     runbook = merged.get("runbook")
     if runbook is not None and urlparse(str(runbook)).scheme not in ("http", "https"):
         raise ConfigError(f"{label}: runbook must be an http(s) URL, got {runbook!r}")
@@ -211,6 +222,8 @@ def _build_spec(entry, defaults: dict, index: int) -> MetricSpec:
         alpha=_number(merged, "alpha", 0.3, label, minimum=0.01, maximum=1),
         fill_missing=_choice(merged, "fill_missing", "drop", {"drop", "zero"}, label),
         runbook=runbook,
+        every_seconds=every,
+        within=within,
         severity=(
             _choice(merged, "severity", None, {WARNING, CRITICAL}, label)
             if merged.get("severity") is not None
@@ -407,4 +420,5 @@ def load(path: str | Path) -> Config:
         metrics=metrics,
         cost=_build_cost(raw["cost"]) if raw.get("cost") is not None else None,
         alert_state=_build_alert_state(raw["alert_state"]) if raw.get("alert_state") is not None else {},
+        run_every_seconds=parse_duration(raw.get("run_every", "5m"), "run_every"),
     )
