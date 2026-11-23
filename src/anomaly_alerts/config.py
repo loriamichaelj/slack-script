@@ -22,7 +22,10 @@ class ConfigError(Exception):
 
 
 _TOP_KEYS = {"slack", "state", "alert_state", "actions_file", "defaults", "metrics", "cost"}
-_SLACK_KEYS = {"webhook_env", "routine_webhook_env", "cooldown_minutes", "max_alerts_per_run", "shared_message"}
+_SLACK_KEYS = {
+    "webhook_env", "routine_webhook_env", "cooldown_minutes", "max_alerts_per_run", "shared_message", "alert_threads",
+}
+_THREAD_KEYS = {"channel", "bot_token_env"}
 _SHARED_KEYS = {"cloud", "clouds", "channel", "bot_token_env", "time_zone"}
 
 # Keys that belong to MetricSpec itself; everything else on a metric is a cloud selector.
@@ -69,12 +72,21 @@ class SharedMessage:
 
 
 @dataclass(frozen=True)
+class AlertThreads:
+    """Post alerts with the bot token, so each is a thread that is followed up and resolved."""
+
+    channel: str  # channel ID the alerts go to
+    bot_token_env: str = "SLACK_BOT_TOKEN"
+
+
+@dataclass(frozen=True)
 class SlackConfig:
     webhook_env: str = "SLACK_WEBHOOK_URL"
     cooldown_seconds: int = 3600
     max_alerts_per_run: int = 10
     routine_webhook_env: str | None = None  # routine reports use webhook_env when unset
     shared_message: SharedMessage | None = None  # routine reports share one message when set
+    alert_threads: AlertThreads | None = None  # alerts are threads when set
 
 
 @dataclass(frozen=True)
@@ -312,6 +324,19 @@ def _build_shared_message(raw) -> SharedMessage:
     )
 
 
+def _build_alert_threads(raw) -> AlertThreads:
+    label = "slack.alert_threads"
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{label}: must be a mapping")
+    unknown = set(raw) - _THREAD_KEYS
+    if unknown:
+        raise ConfigError(f"{label}: unknown key(s) {sorted(unknown)}")
+    channel = _optional_str(raw, "channel", label)
+    if channel is None:
+        raise ConfigError(f"{label}: channel is required (the channel ID, such as C0123456789)")
+    return AlertThreads(channel=channel, bot_token_env=_optional_str(raw, "bot_token_env", label) or "SLACK_BOT_TOKEN")
+
+
 def _build_alert_state(raw) -> dict[str, Path | str]:
     if not isinstance(raw, dict) or not raw:
         raise ConfigError("alert_state: must map each cloud to the location of its state")
@@ -351,6 +376,11 @@ def load(path: str | Path) -> Config:
         shared_message=(
             _build_shared_message(slack_raw["shared_message"])
             if slack_raw.get("shared_message") is not None
+            else None
+        ),
+        alert_threads=(
+            _build_alert_threads(slack_raw["alert_threads"])
+            if slack_raw.get("alert_threads") is not None
             else None
         ),
     )

@@ -80,6 +80,12 @@ class CloudConfigTests(unittest.TestCase):
                 self.assertEqual(shared.clouds, ("aws", "azure", "gcp"))
                 self.assertEqual((shared.channel, shared.time_zone), ("C0123456789", "America/New_York"))
 
+    def test_every_cloud_threads_its_alerts_in_the_shared_channel(self):
+        for cloud in EXPECTED_METRICS:
+            with self.subTest(cloud=cloud):
+                threads = load(cloud).slack.alert_threads
+                self.assertEqual((threads.channel, threads.bot_token_env), ("C0123456789", "SLACK_BOT_TOKEN"))
+
     def test_azure_runs_at_every_utc_hour_its_local_hours_can_be_in_winter_and_summer(self):
         zone = ZoneInfo("America/New_York")
         for name, (_, utc_hours, local_hours) in azure_routine_jobs().items():

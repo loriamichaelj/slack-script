@@ -11,6 +11,10 @@ slack:
     channel: ${slack_channel_id}
     bot_token_env: SLACK_BOT_TOKEN
     time_zone: ${time_zone}
+  # Each alert is a thread: reminders go in it, and it turns green when the metric recovers.
+  alert_threads:
+    channel: ${slack_channel_id}
+    bot_token_env: SLACK_BOT_TOKEN
   cooldown_minutes: 60
   max_alerts_per_run: 10
 

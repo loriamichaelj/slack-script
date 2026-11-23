@@ -163,3 +163,91 @@ class PipelineTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakeThreads:
+    """Records what the pipeline asks of Slack's threads; can be told to fail."""
+
+    def __init__(self, fail=False):
+        self.calls, self.fail, self.count = [], fail, 0
+
+    def _maybe_fail(self):
+        if self.fail:
+            raise SlackError("bot down")
+
+    def open(self, fingerprint, payload):
+        self._maybe_fail()
+        self.count += 1
+        self.calls.append(("open", payload["text"]))
+        return f"ts-{self.count}"
+
+    def follow_up(self, fingerprint, ts, anomaly, payload, opened, now, escalated):
+        self._maybe_fail()
+        self.calls.append(("follow_up", ts, escalated))
+
+    def resolve(self, fingerprint, ts, posted, opened, now):
+        self._maybe_fail()
+        self.calls.append(("resolve", ts, posted["text"]))
+
+
+QUIET_72 = (BASE + [12] * 12)[:72]
+
+
+class ThreadTests(unittest.TestCase):
+    # The pipeline tests' helpers, without running those tests a second time.
+    config = PipelineTests.config
+    run_once = PipelineTests.run_once
+
+    def setUp(self):
+        PipelineTests.setUp(self)
+        self.threads = FakeThreads()
+
+    def run_at(self, minutes, values, **kwargs):
+        provider = FakeProvider({"cpu": make_series(values)})
+        return self.run_once([make_spec()], provider, now=NOW + timedelta(minutes=minutes), threads=self.threads, **kwargs)
+
+    def test_first_alert_opens_a_thread_not_a_webhook_post(self):
+        result = self.run_at(0, SPIKE_72)
+        self.assertEqual(result.posted, 1)
+        self.assertEqual([c[0] for c in self.threads.calls], ["open"])
+        self.assertEqual(self.posted, [])
+
+    def test_a_repeat_after_the_cooldown_goes_in_the_thread(self):
+        self.run_at(0, SPIKE_72)
+        self.run_at(30, SPIKE_72)  # cooldown: nothing
+        self.run_at(61, SPIKE_72)
+        self.assertEqual([c[0] for c in self.threads.calls], ["open", "follow_up"])
+        self.assertEqual(self.threads.calls[1][1], "ts-1")
+
+    def test_quiet_runs_resolve_the_thread_once(self):
+        self.run_at(0, SPIKE_72)
+        self.run_at(5, QUIET_72)  # first quiet run: could be a blip
+        self.assertEqual([c[0] for c in self.threads.calls], ["open"])
+        result = self.run_at(10, QUIET_72)
+        self.assertEqual(result.resolved, 1)
+        self.assertEqual(self.threads.calls[-1][:2], ("resolve", "ts-1"))
+        self.run_at(15, QUIET_72)
+        self.assertEqual([c[0] for c in self.threads.calls].count("resolve"), 1)
+
+    def test_firing_again_resets_the_quiet_count(self):
+        self.run_at(0, SPIKE_72)
+        self.run_at(5, QUIET_72)
+        self.run_at(10, SPIKE_72)  # still firing (in cooldown, so no post)
+        self.run_at(15, QUIET_72)
+        self.assertNotIn("resolve", [c[0] for c in self.threads.calls])
+
+    def test_a_metric_that_cannot_be_read_keeps_its_thread_open(self):
+        self.run_at(0, SPIKE_72)
+        for minutes in (5, 10, 15):
+            self.run_once([make_spec()], FakeProvider({"cpu": RuntimeError("down")}),
+                          now=NOW + timedelta(minutes=minutes), threads=self.threads)
+        self.assertNotIn("resolve", [c[0] for c in self.threads.calls])
+
+    def test_if_the_bot_fails_the_webhook_still_alerts(self):
+        self.threads.fail = True
+        result = self.run_at(0, SPIKE_72)
+        self.assertEqual((result.posted, len(self.posted)), (1, 1))
+
+    def test_without_threads_nothing_changes(self):
+        self.run_once([make_spec()], FakeProvider({"cpu": make_series(SPIKE_72)}))
+        self.assertEqual(len(self.posted), 1)

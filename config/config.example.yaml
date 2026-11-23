@@ -14,6 +14,13 @@ slack:
   # A host whose cron is in UTC only (Azure Container Apps) can run with `--local-hours 0,6,12,18`
   # and be scheduled at every UTC hour that can be one of those. The job then runs only when the
   # hour in time_zone is one of them, so it follows daylight saving.
+  # Optional. Post alerts with the bot token instead, so each alert is a thread: a reminder after
+  # the cooldown goes in the thread (and updates the top message), an escalation to critical
+  # also shows in the channel, and when the metric has been quiet for two runs the top message
+  # turns green and says how long it lasted. Without the token, alerts go to the webhook as before.
+  # alert_threads:
+  #   channel: C0123456789              # channel ID, not the name
+  #   bot_token_env: SLACK_BOT_TOKEN
   # shared_message:
   #   cloud: aws                        # this config's cloud: its section in the message
   #   clouds: [aws, azure, gcp]         # every cloud that should report, in the order shown

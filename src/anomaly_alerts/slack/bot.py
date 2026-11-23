@@ -127,6 +127,15 @@ class SlackBot:
         )
         return reply["ts"]
 
+    def reply(self, thread_ts: str, message: dict, *, broadcast: bool = False) -> str:
+        """Post in a message's thread; broadcast also shows the reply in the channel."""
+        reply = self._call(
+            "chat.postMessage",
+            {"channel": self.channel, "thread_ts": thread_ts, "reply_broadcast": broadcast,
+             **message, "unfurl_links": False},
+        )
+        return reply["ts"]
+
     def update(self, ts: str, message: dict, metadata: dict) -> None:
         self._call("chat.update", {"channel": self.channel, "ts": ts, **message, "metadata": metadata})
 

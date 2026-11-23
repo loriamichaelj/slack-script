@@ -163,7 +163,42 @@ class StateStore:
         return SEVERITY_RANK[severity] > SEVERITY_RANK.get(entry.get("severity"), 0)
 
     def record(self, fingerprint: str, severity: str, now: datetime) -> None:
-        self._entries[fingerprint] = {"at": now.isoformat(), "severity": severity}
+        entry = self._entries.setdefault(fingerprint, {})
+        entry.update({"at": now.isoformat(), "severity": severity})
+
+    # An alert posted with the bot token is a thread: its message id, the message as posted
+    # (to rebuild it as resolved) and when it opened are kept until it resolves.
+
+    def thread(self, fingerprint: str) -> dict | None:
+        entry = self._entries.get(fingerprint)
+        return entry if entry and entry.get("ts") else None
+
+    def open_thread(self, fingerprint: str, ts: str, payload: dict, now: datetime) -> None:
+        entry = self._entries.setdefault(fingerprint, {})
+        entry.update({"ts": ts, "payload": payload, "opened": now.isoformat(), "quiet": 0})
+
+    def update_thread(self, fingerprint: str, payload: dict) -> None:
+        self._entries[fingerprint]["payload"] = payload
+        self._entries[fingerprint]["quiet"] = 0
+
+    def open_threads(self) -> dict[str, dict]:
+        return {fp: e for fp, e in self._entries.items() if e.get("ts")}
+
+    def quiet_run(self, fingerprint: str) -> int:
+        """Count one more run in which this open alert was not detected, and return the count."""
+        entry = self._entries[fingerprint]
+        entry["quiet"] = int(entry.get("quiet", 0)) + 1
+        return entry["quiet"]
+
+    def still_firing(self, fingerprint: str) -> None:
+        if fingerprint in self._entries:
+            self._entries[fingerprint]["quiet"] = 0
+
+    def close_thread(self, fingerprint: str) -> None:
+        """The alert resolved. The cooldown entry stays, so a quick return does not re-alert at once."""
+        entry = self._entries.get(fingerprint, {})
+        for key in ("ts", "payload", "opened", "quiet"):
+            entry.pop(key, None)
 
     def last_saved(self) -> datetime | None:
         """When an alert run last saved this file, or None if none has. Every run saves it."""
