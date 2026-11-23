@@ -77,7 +77,7 @@ aws ssm put-parameter --name /anomaly-alerts/slack-bot-token --type SecureString
 unset TOKEN
 ```
 
-The Lambda reads these SSM parameters. The older Secrets Manager secrets (`slack-webhook`, `slack-routine-webhook`) are no longer read and can be deleted; each costs $0.40 a month.
+The Lambda reads these SSM parameters. Secrets Manager is not used: it would cost $0.40 a month per secret, and SecureString parameters are free.
 
 ## Cost
 
