@@ -38,7 +38,7 @@ _METRIC_KEYS = _TUNING_KEYS | {"name", "provider"}
 
 _SELECTORS = {
     "aws": ({"region", "namespace", "metric"}, {"dimensions", "stat"}),
-    "azure": ({"resource_id", "metric"}, {"aggregation", "namespace"}),
+    "azure": ({"resource_id", "metric"}, {"aggregation", "namespace", "filter"}),
     "gcp": ({"project", "metric_type"}, {"filter", "aligner", "reducer", "group_by"}),
 }
 # A metric with one of these keys counts log rows instead of reading a cloud metric.

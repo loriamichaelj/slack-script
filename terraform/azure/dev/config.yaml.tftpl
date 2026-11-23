@@ -45,6 +45,70 @@ metrics:
     fill_missing: zero
     min_abs_change: 1
 
+  # Container Apps job runs that failed, per job. The metric is sampled each minute, so the
+  # maximum is 1 when any run in the period failed. A run fails when it cannot fetch a metric
+  # or post to Slack, so this also catches a broken config or secret.
+  - name: azure-job-failures-anomaly-run  # the 5 minute alert job
+    provider: azure
+    resource_id: ${jobs_scope}/anomaly-run
+    metric: Executions
+    filter: state eq 'Failed'
+    aggregation: maximum
+    lookback: 3h
+    period: 15m
+    category: errors
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: warning
+  - name: azure-job-failures-routine-heartbeat  # the heartbeat
+    provider: azure
+    resource_id: ${jobs_scope}/routine-heartbeat
+    metric: Executions
+    filter: state eq 'Failed'
+    aggregation: maximum
+    lookback: 3h
+    period: 15m
+    category: errors
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: warning
+  - name: azure-job-failures-routine-digest  # the health digest
+    provider: azure
+    resource_id: ${jobs_scope}/routine-digest
+    metric: Executions
+    filter: state eq 'Failed'
+    aggregation: maximum
+    lookback: 3h
+    period: 15m
+    category: errors
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: warning
+  - name: azure-job-failures-routine-cost  # the cost report
+    provider: azure
+    resource_id: ${jobs_scope}/routine-cost
+    metric: Executions
+    filter: state eq 'Failed'
+    aggregation: maximum
+    lookback: 3h
+    period: 15m
+    category: errors
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: warning
+
   # Subscription-wide events from the Activity Log (terraform/azure/org). Each query's rows are
   # counted per period, and any count above zero alerts. The log reaches the workspace 5 to 15
   # minutes late, counted at the time it happened, so 30 minute periods leave room for late
