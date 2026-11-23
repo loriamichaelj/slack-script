@@ -6,6 +6,9 @@ A point set is an anomaly only when all of these hold:
   * the side is one the metric alerts on (spike, drop or both);
   * each breaching value is at least min_abs_change away from the baseline centre.
 When the baseline has no spread, a percentage-change rule takes over.
+
+The threshold detector has no baseline: the last sustained_points values must all be past the
+fixed limit (spec.threshold) on the side the direction names, and min_points does not apply.
 """
 
 from __future__ import annotations
@@ -13,7 +16,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from ..models import BOTH, CRITICAL, DROP, SPIKE, WARNING, Detection, MetricSpec
-from . import DETECTORS
+from . import DETECTORS, needs_baseline
 
 # With a flat baseline, a 50% move from the centre scores exactly the threshold.
 FLAT_PCT = 0.5
@@ -32,7 +35,29 @@ def _flat_scores(center: float, window: list[float], threshold: float) -> list[f
     return [_sign(x - center) * threshold * (abs(x - center) / denom) / FLAT_PCT for x in window]
 
 
+def _check_limit(values: list[float], spec: MetricSpec, k: int) -> Detection | None:
+    if k < 1 or len(values) < k:
+        return None
+    window = values[-k:]
+    limit = spec.threshold
+    sign = 1 if spec.direction == SPIKE else -1
+    if not all((x - limit) * sign > 0 for x in window):
+        return None
+    weakest = min((x - limit for x in window), key=abs)
+    return Detection(
+        direction=SPIKE if sign > 0 else DROP,
+        severity=WARNING,
+        score=weakest,
+        observed=window[-1],
+        center=limit,
+        spread=0.0,
+        breaching=k,
+    )
+
+
 def _check(values: list[float], spec: MetricSpec, detector, k: int) -> Detection | None:
+    if not needs_baseline(spec.detector):
+        return _check_limit(values, spec, k)
     if k < 1 or len(values) < spec.min_points + k:
         return None
     baseline, window = values[:-k], values[-k:]
@@ -72,4 +97,6 @@ def evaluate(values: list[float], spec: MetricSpec) -> Detection | None:
         longer = _check(values, spec, detector, 2 * spec.sustained_points)
         if longer and longer.direction == found.direction:
             found = replace(found, severity=CRITICAL)
+    if found and spec.severity:
+        found = replace(found, severity=spec.severity)
     return found

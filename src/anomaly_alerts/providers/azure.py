@@ -1,4 +1,9 @@
-"""Azure Monitor via azure-monitor-query (MetricsQueryClient, version 1.x)."""
+"""Azure Monitor via azure-monitor-query, version 1.x.
+
+A metric with resource_id reads a platform metric (MetricsQueryClient). A metric with
+workspace_id counts the rows a KQL query returns from a Log Analytics workspace, per period
+(LogsQueryClient), which is how Activity Log events such as a role assignment become a number.
+"""
 
 from __future__ import annotations
 
@@ -17,23 +22,31 @@ _AGGREGATIONS = {
 }
 
 
-def _default_client():
+def _default_client(kind: str = "metrics"):
     try:
         from azure.identity import DefaultAzureCredential
-        from azure.monitor.query import MetricsQueryClient
+        from azure.monitor.query import LogsQueryClient, MetricsQueryClient
     except ImportError as exc:
         raise RuntimeError(
             "azure-monitor-query and azure-identity are not installed; "
             "run: pip install 'anomaly-alerts[azure]'"
         ) from exc
-    return MetricsQueryClient(DefaultAzureCredential())
+    client = LogsQueryClient if kind == "logs" else MetricsQueryClient
+    return client(DefaultAzureCredential())
+
+
+def _aware(ts: datetime) -> datetime:
+    return ts if ts.tzinfo else ts.replace(tzinfo=UTC)
 
 
 class AzureProvider:
-    def __init__(self, client=None):
+    def __init__(self, client=None, logs_client=None):
         self._client = client
+        self._logs_client = logs_client
 
     def fetch(self, spec: MetricSpec, start: datetime, end: datetime) -> Series:
+        if "workspace_id" in spec.selector:
+            return self._fetch_logs(spec, start, end)
         if self._client is None:
             self._client = _default_client()
         sel = spec.selector
@@ -59,8 +72,7 @@ class AzureProvider:
                     value = getattr(item, attribute, None)
                     if value is None:
                         continue  # gap
-                    ts = item.timestamp if item.timestamp.tzinfo else item.timestamp.replace(tzinfo=UTC)
-                    points.append(Point(ts, float(value)))
+                    points.append(Point(_aware(item.timestamp), float(value)))
         points.sort(key=lambda p: p.ts)
 
         subscription = re.search(r"/subscriptions/([^/]+)", resource_id, re.IGNORECASE)
@@ -72,4 +84,35 @@ class AzureProvider:
             scope=subscription.group(1) if subscription else "azure",
             points=points,
             console_url=f"https://portal.azure.com/#@/resource{resource_id}/metrics",
+        )
+
+    def _fetch_logs(self, spec: MetricSpec, start: datetime, end: datetime) -> Series:
+        if self._logs_client is None:
+            self._logs_client = _default_client("logs")
+        sel = spec.selector
+        # The config gives the rows to count; the count per period is added here, so every
+        # query returns the same two columns.
+        query = (
+            f"{sel['query'].strip()}\n"
+            f"| summarize value = count() by bin(TimeGenerated, {spec.period_seconds}s)"
+        )
+        response = self._logs_client.query_workspace(sel["workspace_id"], query, timespan=(start, end))
+        if getattr(response, "partial_error", None) is not None or not hasattr(response, "tables"):
+            raise RuntimeError(f"log query returned an error: {getattr(response, 'partial_error', response)}")
+
+        points: list[Point] = []
+        for table in response.tables[:1]:
+            columns = [getattr(c, "name", c) for c in table.columns]
+            ts_at, value_at = columns.index("TimeGenerated"), columns.index("value")
+            for row in table.rows:
+                points.append(Point(_aware(row[ts_at]), float(row[value_at])))
+        points.sort(key=lambda p: p.ts)
+        return Series(
+            provider="azure",
+            resource=spec.name,
+            metric="log query",
+            unit="events",
+            scope=sel["workspace_id"],
+            points=points,
+            console_url=None,
         )

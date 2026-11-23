@@ -34,3 +34,16 @@ actions:
       - Confirm DNS, certificates and upstream health
       - Check whether a client or region stopped sending traffic
       - Check load balancer and routing changes
+
+  # Audit-log events counted per period: any one of them is worth a look.
+  - match: {category: security, direction: spike}
+    steps:
+      - Open the audit log for the window and find who made the change, from where
+      - Confirm it was planned (a Terraform apply, a deploy, or you in the console)
+      - "If it was not: revoke the credential, undo the change, and check for others like it"
+
+  - match: {category: availability, direction: drop}
+    steps:
+      - Open the URL or job and confirm it is down, not just slow to report
+      - Check for a recent deploy, an expired certificate, or a DNS change
+      - Check the cloud's status page for the region
