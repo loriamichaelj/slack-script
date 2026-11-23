@@ -10,10 +10,21 @@ variable "project_id" {
   default     = "slack-anomaly-dev"
 }
 
-variable "billing_dataset" {
-  description = "Dataset holding the billing account's Standard usage cost export, as project.dataset."
-  type        = string
-  default     = "tensile-runway-511902-q9.shiptrack_billing_export"
+variable "billing_datasets" {
+  description = "Datasets holding each billing account's Standard usage cost export, as project.dataset."
+  type        = list(string)
+  default = [
+    "tensile-runway-511902-q9.shiptrack_billing_export", # Organization Billing
+    "skills-mjl-27850.billing_export",                   # My Billing Account
+  ]
+}
+
+variable "uptime_hosts" {
+  description = "Public sites to check over HTTPS from outside, as short name => host. Each check fetches / every 5 minutes from 3 regions."
+  type        = map(string)
+  default = {
+    "michaeljloria-com" = "michaeljloria.com"
+  }
 }
 
 variable "log_retention_days" {
