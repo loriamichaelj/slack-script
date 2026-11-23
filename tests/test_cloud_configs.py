@@ -34,7 +34,11 @@ EXPECTED_METRICS = {
         "audit-iam-changes", "audit-new-footprint", "audit-sa-key-created", "audit-logging-changed",
         "audit-made-public", "audit-kms-key-destroyed",
     },
-    "aws": {"lambda-errors", "lambda-invocations", "lambda-duration"},
+    "aws": {
+        "lambda-errors", "lambda-invocations", "lambda-duration", "aws-RootOrNoMfaSignIn", "aws-IamChanges",
+        "aws-AccessKeyCreated", "aws-LoggingChanged", "aws-MadePublic", "aws-OutsideHomeRegion",
+        "aws-KmsKeyDisabled",
+    },
     "azure": {"state-account-transactions"},
 }
 

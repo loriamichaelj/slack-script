@@ -68,6 +68,122 @@ metrics:
     fill_missing: zero
     min_abs_change: 1
 
+  # Account-wide audit events from the platform-audit trail (terraform/aws/org audit.tf). Each
+  # match counts 1, and any count above zero alerts. Each adds about $0.09 a month in reads.
+  # CloudTrail delivers events 5 to 15 minutes late, counted at the time they happened, so 30
+  # minute periods leave room for late ones: only complete periods are tested.
+  - name: aws-RootOrNoMfaSignIn  # the root user did something, or someone signed in without MFA
+    provider: aws
+    region: ${region}
+    namespace: PlatformAudit
+    metric: RootOrNoMfaSignIn
+    stat: Sum
+    lookback: 3h
+    period: 30m
+    category: security
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: critical
+
+  - name: aws-IamChanges  # IAM or Organizations changed (Terraform applies count too)
+    provider: aws
+    region: ${region}
+    namespace: PlatformAudit
+    metric: IamChanges
+    stat: Sum
+    lookback: 3h
+    period: 30m
+    category: security
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: warning
+
+  - name: aws-AccessKeyCreated  # an access key or console password created: the account has no IAM users
+    provider: aws
+    region: ${region}
+    namespace: PlatformAudit
+    metric: AccessKeyCreated
+    stat: Sum
+    lookback: 3h
+    period: 30m
+    category: security
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: critical
+
+  - name: aws-LoggingChanged  # the trail or its log group changed: logs could stop arriving
+    provider: aws
+    region: ${region}
+    namespace: PlatformAudit
+    metric: LoggingChanged
+    stat: Sum
+    lookback: 3h
+    period: 30m
+    category: security
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: critical
+
+  - name: aws-MadePublic  # a security group opened, or an S3 public access block removed
+    provider: aws
+    region: ${region}
+    namespace: PlatformAudit
+    metric: MadePublic
+    stat: Sum
+    lookback: 3h
+    period: 30m
+    category: security
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: critical
+
+  - name: aws-OutsideHomeRegion  # a change in a region other than ${region}
+    provider: aws
+    region: ${region}
+    namespace: PlatformAudit
+    metric: OutsideHomeRegion
+    stat: Sum
+    lookback: 3h
+    period: 30m
+    category: security
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: warning
+
+  - name: aws-KmsKeyDisabled  # a KMS key disabled or scheduled for deletion
+    provider: aws
+    region: ${region}
+    namespace: PlatformAudit
+    metric: KmsKeyDisabled
+    stat: Sum
+    lookback: 3h
+    period: 30m
+    category: security
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: critical
+
 # The report shows month to date against a monthly budget, and warns at 80% or when the
 # month is on pace to pass it. With more than one member account it also lists each one.
 cost:
