@@ -307,6 +307,23 @@ class DigestTests(unittest.TestCase):
         self.assertIn("metric-099", text)
         self.assertNotIn("metric-100", text)
 
+    def test_quiet_limit_checks_fold_into_one_line(self):
+        def limit(name, status=routine.OK, latest=0.0):
+            return routine.DigestRow(name, "aws", status, latest=latest, center=0.0, center_label="limit",
+                                     fixed_limit=True)
+        rows = [
+            limit("audit-fired", routine.CRITICAL, latest=2.0),
+            routine.DigestRow("cpu", "aws", routine.OK, latest=12.0, center=12.0, center_label="median"),
+            *[limit(f"audit-{i}") for i in range(10)],
+        ]
+        text = all_text(blocks.build_digest_payload(NOW, rows))
+        self.assertIn("*audit-fired*", text)  # a limit check that fired keeps its line
+        self.assertIn("*cpu*", text)  # baseline metrics keep theirs, with a sparkline
+        self.assertNotIn("*audit-3*", text)
+        self.assertIn(":white_check_mark: 10 limit checks quiet: `audit-0`", text)
+        self.assertIn("and 2 more", text)
+        self.assertIn("*12* metrics", text)  # the count still covers every metric
+
     def test_digest_names_and_units_are_escaped(self):
         row = routine.DigestRow("a<b>&c", "aws", routine.OK, unit="<u>", latest=1.0,
                                 center=1.0, center_label="median")

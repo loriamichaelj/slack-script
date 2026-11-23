@@ -119,6 +119,7 @@ class DigestRow:
     points: int = 0
     needed: int = 0  # points required before the metric has a baseline
     recent: tuple[float, ...] = ()
+    fixed_limit: bool = False  # compared to a set limit, not a learned baseline
 
 
 def _row(outcome: pipeline.MetricOutcome) -> DigestRow:
@@ -133,6 +134,7 @@ def _row(outcome: pipeline.MetricOutcome) -> DigestRow:
         needed=spec.min_points + spec.sustained_points,
         recent=tuple(values[-pipeline.RECENT_POINTS:]),
         center_label=DETECTORS[spec.detector].CENTER_LABEL,
+        fixed_limit=not needs_baseline(spec.detector),
     )
     if outcome.anomaly:
         det = outcome.anomaly.detection

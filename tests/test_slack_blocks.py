@@ -26,55 +26,77 @@ def make_anomaly(severity="critical", runbook="https://wiki.example.com/rb", nam
 
 class BlockTests(unittest.TestCase):
     def texts(self, payload):
-        out = []
+        out = [b["text"]["text"] for b in payload.get("blocks", [])]
         for block in payload["attachments"][0]["blocks"]:
             if "text" in block:
                 out.append(block["text"]["text"])
+            out += [f["text"] for f in block.get("fields", [])]
             for element in block.get("elements", []):
-                out.append(element.get("text", ""))
-                if isinstance(out[-1], dict):
-                    out[-1] = out[-1]["text"]
+                text = element.get("text", "")
+                out.append(text["text"] if isinstance(text, dict) else text)
         return "\n".join(out)
 
-    def test_payload_has_fallback_text_colour_and_content(self):
-        payload = blocks.build_payload(make_anomaly(), ["Check deploys", "Check logs"])
-        self.assertIn("[CRITICAL]", payload["text"])
+    def test_header_says_how_bad_and_what(self):
+        payload = blocks.build_payload(make_anomaly(), ["x"])
+        header = payload["blocks"][0]
+        self.assertEqual(header["type"], "header")
+        self.assertEqual(header["text"]["text"], ":red_circle: CRITICAL · alb-5xx")
         self.assertEqual(payload["attachments"][0]["color"], blocks.COLORS["critical"])
-        text = self.texts(payload)
-        self.assertIn("*[CRITICAL]* AWS | alb-5xx | HTTPCode_Target_5XX_Count", text)
-        self.assertIn("Observed *412*", text)
-        self.assertIn("baseline median *6*", text)
-        self.assertIn("modified z = +41.2", text)
-        self.assertIn("1. Check deploys", text)
-        self.assertIn("2. Check logs", text)
+        self.assertIn("[CRITICAL]", payload["text"])
 
-    def test_warning_uses_its_own_colour(self):
+    def test_numbers_are_a_grid_in_plain_words(self):
+        text = self.texts(blocks.build_payload(make_anomaly(), ["Check deploys", "Check logs"]))
+        self.assertIn("AWS · HTTPCode_Target_5XX_Count · prod-api · us-east-1", text)
+        self.assertIn("*Now*\n↑ 412", text)
+        self.assertIn("*Usual (median)*\n6", text)
+        self.assertIn("*Change*\n69× usual", text)
+        self.assertIn("*Lasting*\n15 min (3 periods)", text)
+        self.assertIn("*Started*\n<!date^", text)
+        self.assertIn("*What to check*\n1. Check deploys\n2. Check logs", text)
+        self.assertIn("modified z +41.2, threshold 3.5", text)  # the statistics stay, in small print
+
+    def test_change_reads_as_a_multiple_or_a_percentage(self):
+        self.assertEqual(blocks.change_text(412, 6, "spike", False), "69× usual")
+        self.assertEqual(blocks.change_text(15, 6, "spike", False), "2.5× usual")
+        self.assertEqual(blocks.change_text(9, 6, "spike", False), "+50% vs usual")
+        self.assertEqual(blocks.change_text(2, 10, "drop", False), "-80% vs usual")
+        self.assertEqual(blocks.change_text(3, 0, "spike", False), "+3 from 0")
+        self.assertEqual(blocks.change_text(0.2, 0.5, "drop", True), "0.3 below the limit")
+
+    def test_times_show_in_the_readers_time_zone(self):
+        self.assertEqual(blocks.when(NOW), "<!date^1793188800^{date_short_pretty} at {time}|2026-10-28 12:00 UTC>")
+        self.assertEqual([blocks.duration(s) for s in (300, 3600, 5400)], ["5 min", "1 h", "1 h 30 min"])
+
+    def test_warning_uses_its_own_colour_and_icon(self):
         payload = blocks.build_payload(make_anomaly("warning"), ["x"])
         self.assertEqual(payload["attachments"][0]["color"], blocks.COLORS["warning"])
+        self.assertTrue(payload["blocks"][0]["text"]["text"].startswith(":large_orange_circle: WARNING"))
 
     def test_buttons_for_console_and_runbook(self):
         payload = blocks.build_payload(make_anomaly(), ["x"])
-        actions = payload["attachments"][0]["blocks"][-1]
-        self.assertEqual(actions["type"], "actions")
+        actions = [b for b in payload["attachments"][0]["blocks"] if b["type"] == "actions"][0]
         self.assertEqual([b["url"] for b in actions["elements"]],
                          ["https://console.example.com/metric", "https://wiki.example.com/rb"])
 
     def test_no_buttons_when_there_are_no_links(self):
         payload = blocks.build_payload(make_anomaly(runbook=None, console=False), ["x"])
-        self.assertNotEqual(payload["attachments"][0]["blocks"][-1]["type"], "actions")
+        self.assertNotIn("actions", [b["type"] for b in payload["attachments"][0]["blocks"]])
 
     def test_user_text_is_escaped(self):
         payload = blocks.build_payload(make_anomaly(name="a<b>&c"), ["use <b>bold</b>"])
         text = self.texts(payload)
-        self.assertIn("a&lt;b&gt;&amp;c", text)
         self.assertIn("use &lt;b&gt;bold&lt;/b&gt;", text)
+        self.assertIn("a<b>&c", payload["blocks"][0]["text"]["text"])  # plain text needs no escaping
 
     def test_blocks_stay_within_slack_limits(self):
-        payload = blocks.build_payload(make_anomaly(), ["x"] * 5)
+        payload = blocks.build_payload(make_anomaly(name="n" * 300), ["x"] * 5)
+        self.assertLessEqual(len(payload["blocks"][0]["text"]["text"]), 150)
         self.assertLessEqual(len(payload["attachments"][0]["blocks"]), 50)
         for block in payload["attachments"][0]["blocks"]:
             if block["type"] == "section":
-                self.assertLessEqual(len(block["text"]["text"]), 3000)
+                self.assertLessEqual(len(block.get("fields", [])), 10)
+                for text in [block.get("text", {}).get("text", "")] + [f["text"] for f in block.get("fields", [])]:
+                    self.assertLessEqual(len(text), 2000)
 
     def test_sparkline(self):
         self.assertEqual(blocks.sparkline([1, 1, 1]), "▁▁▁")
