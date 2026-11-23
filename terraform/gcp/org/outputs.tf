@@ -12,3 +12,13 @@ output "monitored_projects" {
   description = "Projects whose metrics the scoping project can read."
   value       = sort(keys(google_monitoring_monitored_project.org))
 }
+
+output "audit_metrics" {
+  description = "Log-based metric types the alert job reads, one per audit event."
+  value       = sort([for m in google_logging_metric.audit : "logging.googleapis.com/user/${m.name}"])
+}
+
+output "uptime_checks" {
+  description = "Uptime check IDs, by short name."
+  value       = { for k, c in google_monitoring_uptime_check_config.site : k => c.uptime_check_id }
+}

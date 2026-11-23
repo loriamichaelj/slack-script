@@ -14,7 +14,10 @@ TERRAFORM = Path(__file__).resolve().parent.parent / "terraform"
 # What Terraform fills in, with stand-ins that have the right shape.
 SHARED = {"slack_channel_id": "C0123456789", "time_zone": "America/New_York"}
 VALUES = {
-    "gcp": {"project_id": "my-project", "billing_table": "p.d.t", "mount_path": "/mnt/app", **SHARED},
+    "gcp": {
+        "project_id": "my-project", "billing_table": "p.d.t", "second_billing_table": "p.d.t2",
+        "mount_path": "/mnt/app", **SHARED,
+    },
     "aws": {"bucket": "my-bucket", "region": "us-east-1", "function_name": "anomaly-alerts", **SHARED},
     "azure": {
         **SHARED,
@@ -26,7 +29,11 @@ VALUES = {
 }
 
 EXPECTED_METRICS = {
-    "gcp": {"org-error-logs", "org-api-errors", "cloud-run-job-failures", "anomaly-run-succeeded"},
+    "gcp": {
+        "org-error-logs", "org-api-errors", "cloud-run-job-failures", "anomaly-run-succeeded", "site-up",
+        "audit-iam-changes", "audit-new-footprint", "audit-sa-key-created", "audit-logging-changed",
+        "audit-made-public", "audit-kms-key-destroyed",
+    },
     "aws": {
         "lambda-errors", "lambda-invocations", "lambda-duration", "aws-RootOrNoMfaSignIn", "aws-IamChanges",
         "aws-AccessKeyCreated", "aws-LoggingChanged", "aws-MadePublic", "aws-OutsideHomeRegion",
@@ -92,11 +99,12 @@ class CloudConfigTests(unittest.TestCase):
             with self.subTest(cloud=cloud):
                 self.assertEqual({m.name for m in load(cloud).metrics}, names)
 
-    def test_each_cloud_has_a_five_dollar_monthly_budget(self):
+    def test_every_billing_account_has_a_five_dollar_monthly_budget(self):
+        accounts = {"gcp": 2, "aws": 1, "azure": 1}  # GCP has two billing accounts
         for cloud in EXPECTED_METRICS:
             with self.subTest(cloud=cloud):
                 budgets = [a.budget for a in load(cloud).cost.accounts]
-                self.assertEqual(budgets, [5.0])
+                self.assertEqual(budgets, [5.0] * accounts[cloud])
 
     def test_the_azure_budget_variable_defaults_to_five(self):
         text = (TERRAFORM / "azure" / "dev" / "variables.tf").read_text()
