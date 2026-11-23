@@ -41,6 +41,115 @@ metrics:
     fill_missing: zero
     min_abs_change: 1
 
+  # Subscription-wide events from the Activity Log (terraform/azure/org). Each query's rows are
+  # counted per period, and any count above zero alerts. The log reaches the workspace 5 to 15
+  # minutes late, counted at the time it happened, so 30 minute periods leave room for late
+  # rows: only complete periods are tested.
+  - name: azure-role-changes  # role assignments or role definitions changed (Terraform applies count too)
+    provider: azure
+    workspace_id: ${audit_workspace_id}
+    query: >-
+      AzureActivity | where OperationNameValue in~ ("Microsoft.Authorization/roleAssignments/write", "Microsoft.Authorization/roleAssignments/delete", "Microsoft.Authorization/roleDefinitions/write", "Microsoft.Authorization/roleDefinitions/delete") and ActivityStatusValue in~ ("Success", "Succeeded")
+    lookback: 3h
+    period: 30m
+    category: security
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: warning
+
+  - name: azure-logging-changed  # a diagnostic setting or a workspace changed or deleted: logs could stop arriving
+    provider: azure
+    workspace_id: ${audit_workspace_id}
+    query: >-
+      AzureActivity | where OperationNameValue in~ ("Microsoft.Insights/diagnosticSettings/write", "Microsoft.Insights/diagnosticSettings/delete", "Microsoft.OperationalInsights/workspaces/delete") and ActivityStatusValue in~ ("Success", "Succeeded")
+    lookback: 3h
+    period: 30m
+    category: security
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: critical
+
+  - name: azure-network-exposure  # a network security rule or a public IP address created or changed
+    provider: azure
+    workspace_id: ${audit_workspace_id}
+    query: >-
+      AzureActivity | where OperationNameValue in~ ("Microsoft.Network/networkSecurityGroups/securityRules/write", "Microsoft.Network/publicIPAddresses/write") and ActivityStatusValue in~ ("Success", "Succeeded")
+    lookback: 3h
+    period: 30m
+    category: security
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: critical
+
+  - name: azure-key-vault-changed  # a Key Vault, or who may read it, changed or deleted
+    provider: azure
+    workspace_id: ${audit_workspace_id}
+    query: >-
+      AzureActivity | where OperationNameValue in~ ("Microsoft.KeyVault/vaults/write", "Microsoft.KeyVault/vaults/delete", "Microsoft.KeyVault/vaults/accessPolicies/write") and ActivityStatusValue in~ ("Success", "Succeeded")
+    lookback: 3h
+    period: 30m
+    category: security
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: warning
+
+  - name: azure-new-footprint  # a resource group created or deleted
+    provider: azure
+    workspace_id: ${audit_workspace_id}
+    query: >-
+      AzureActivity | where OperationNameValue in~ ("Microsoft.Resources/subscriptions/resourceGroups/write", "Microsoft.Resources/subscriptions/resourceGroups/delete") and ActivityStatusValue in~ ("Success", "Succeeded")
+    lookback: 3h
+    period: 30m
+    category: security
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: warning
+
+  - name: azure-security-alerts  # a Defender for Cloud security alert
+    provider: azure
+    workspace_id: ${audit_workspace_id}
+    query: >-
+      AzureActivity | where CategoryValue == "Security"
+    lookback: 3h
+    period: 30m
+    category: security
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: critical
+
+  - name: azure-service-health  # an Azure incident or planned maintenance that affects this subscription
+    provider: azure
+    workspace_id: ${audit_workspace_id}
+    query: >-
+      AzureActivity | where CategoryValue == "ServiceHealth"
+    lookback: 3h
+    period: 30m
+    category: availability
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    fill_missing: zero
+    severity: warning
+
 # The report shows month to date against a monthly budget, and warns at 80% or when the
 # month is on pace to pass it.
 cost:

@@ -24,6 +24,7 @@ VALUES = {
         "state_url": "https://acct.blob.core.windows.net/app/state/alerts.json",
         "state_account_id": "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/acct",
         "subscription_scope": "/subscriptions/s",
+        "audit_workspace_id": "/subscriptions/s/resourceGroups/rg/providers/Microsoft.OperationalInsights/workspaces/w",
         "budget": "5",
     },
 }
@@ -39,7 +40,10 @@ EXPECTED_METRICS = {
         "aws-AccessKeyCreated", "aws-LoggingChanged", "aws-MadePublic", "aws-OutsideHomeRegion",
         "aws-KmsKeyDisabled",
     },
-    "azure": {"state-account-transactions"},
+    "azure": {
+        "state-account-transactions", "azure-role-changes", "azure-logging-changed", "azure-network-exposure",
+        "azure-key-vault-changed", "azure-new-footprint", "azure-security-alerts", "azure-service-health",
+    },
 }
 
 # The metric on each cloud that proves the 5 minute schedule is still running.

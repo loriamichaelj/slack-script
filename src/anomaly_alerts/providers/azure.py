@@ -3,6 +3,7 @@
 A metric with resource_id reads a platform metric (MetricsQueryClient). A metric with
 workspace_id counts the rows a KQL query returns from a Log Analytics workspace, per period
 (LogsQueryClient), which is how Activity Log events such as a role assignment become a number.
+workspace_id is the workspace's customer ID (a GUID) or its full Azure resource ID.
 """
 
 from __future__ import annotations
@@ -96,7 +97,12 @@ class AzureProvider:
             f"{sel['query'].strip()}\n"
             f"| summarize value = count() by bin(TimeGenerated, {spec.period_seconds}s)"
         )
-        response = self._logs_client.query_workspace(sel["workspace_id"], query, timespan=(start, end))
+        workspace = sel["workspace_id"]
+        if workspace.startswith("/"):
+            # A full resource ID: known before the workspace exists, so the config never waits on it.
+            response = self._logs_client.query_resource(workspace, query, timespan=(start, end))
+        else:
+            response = self._logs_client.query_workspace(workspace, query, timespan=(start, end))
         if getattr(response, "partial_error", None) is not None or not hasattr(response, "tables"):
             raise RuntimeError(f"log query returned an error: {getattr(response, 'partial_error', response)}")
 
@@ -107,12 +113,13 @@ class AzureProvider:
             for row in table.rows:
                 points.append(Point(_aware(row[ts_at]), float(row[value_at])))
         points.sort(key=lambda p: p.ts)
+        subscription = re.search(r"/subscriptions/([^/]+)", workspace, re.IGNORECASE)
         return Series(
             provider="azure",
             resource=spec.name,
             metric="log query",
             unit="events",
-            scope=sel["workspace_id"],
+            scope=subscription.group(1) if subscription else workspace,
             points=points,
             console_url=None,
         )
