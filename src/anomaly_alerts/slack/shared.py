@@ -16,7 +16,7 @@ import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from .blocks import PROVIDER_LABELS, Report, _stamp
+from .blocks import PROVIDER_LABELS, Report, when
 from .bot import EVENT_TYPE, Found, SlackBot
 from .client import SlackError
 
@@ -81,7 +81,7 @@ def compose(
     overall = max((levels.get(p, "ok") for p in order), key=lambda lv: _RANK.get(lv, 0), default="ok")
     name = REPORT_NAMES[kind]
     head = f"*{name}: {_OVERALL.get(overall, 'OK')}*"
-    foot = f"Updated {_stamp(now)} UTC"
+    foot = f"Updated {when(now)}"
     if waiting:
         foot = f":hourglass_flowing_sand: Waiting for {', '.join(PROVIDER_LABELS.get(p, p) for p in waiting)} | {foot}"
     blocks = [{"type": "section", "block_id": "head", "text": {"type": "mrkdwn", "text": head}}]

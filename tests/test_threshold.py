@@ -178,9 +178,13 @@ class ThresholdMessageTests(unittest.TestCase):
         series = make_series([0, 0, 2])
         det = evaluate([0, 0, 2], spec)
         anomaly = Anomaly(spec, series, det, NOW - timedelta(minutes=5), NOW, [0, 0, 2])
-        text = str(blocks.build_payload(anomaly, ["look"]))
-        self.assertIn("vs limit *0*", text)
+        payload = blocks.build_payload(anomaly, ["look"])
+        text = str(payload)
+        self.assertIn("*Limit*\\n0", text)
+        self.assertIn("2 above the limit", text)
+        self.assertIn("vs limit 0", payload["text"])
         self.assertNotIn("baseline", text)
+        self.assertNotIn("Usual", text)
 
     def test_digest_row_shows_the_limit_and_never_waits_for_a_baseline(self):
         spec = limit_spec(threshold=85.0)

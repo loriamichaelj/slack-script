@@ -35,7 +35,7 @@ class Report:
         """The message one cloud posts to a webhook on its own."""
         blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": f"*{self.title}*"}}, *self.body]
         blocks.append(
-            {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Run at {_stamp(now)} UTC"}]}
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Run {when(now)}"}]}
         )
         return {"text": self.text, "attachments": [{"color": COLORS[self.level], "blocks": blocks}]}
 
@@ -68,63 +68,108 @@ def _stamp(dt) -> str:
     return dt.strftime("%Y-%m-%d %H:%M")
 
 
+def when(dt) -> str:
+    """A time Slack shows in each reader's own time zone, with UTC as the fallback text."""
+    return f"<!date^{int(dt.timestamp())}^{{date_short_pretty}} at {{time}}|{_stamp(dt)} UTC>"
+
+
+def duration(seconds: float) -> str:
+    minutes = round(seconds / 60)
+    if minutes < 60:
+        return f"{minutes} min"
+    hours, rest = divmod(minutes, 60)
+    return f"{hours} h" + (f" {rest} min" if rest else "")
+
+
+def change_text(observed: float, center: float, direction: str, fixed_limit: bool, unit: str = "") -> str:
+    """How far a value moved, in words people read at a glance: 14× usual, -60% vs usual."""
+    gap = observed - center
+    if fixed_limit:
+        side = "above" if gap > 0 else "below"
+        return f"{fmt(abs(gap))}{unit} {side} the limit"
+    if center == 0:
+        return f"{'+' if gap > 0 else ''}{fmt(gap)}{unit} from 0"
+    ratio = observed / center
+    if direction == SPIKE and ratio >= 2:
+        return f"{ratio:.0f}× usual" if ratio >= 10 else f"{ratio:.1f}× usual"
+    return f"{gap / abs(center) * 100:+.0f}% vs usual"
+
+
+_SEVERITY_ICONS = {"critical": ":red_circle:", "warning": ":large_orange_circle:"}
+
+
 def build_payload(anomaly: Anomaly, steps: list[str]) -> dict:
+    """One alert: a header that says what and how bad, the numbers in a grid, then what to do.
+
+    The header sits above the coloured attachment, so the severity reads first in the channel
+    and in the notification; the colour bar runs down the details.
+    """
     det, spec, series = anomaly.detection, anomaly.spec, anomaly.series
     module = DETECTORS[spec.detector]
+    fixed_limit = not needs_baseline(spec.detector)
     provider = PROVIDER_LABELS.get(series.provider, series.provider)
     severity = anomaly.severity.upper()
     arrow = "↑" if det.direction == SPIKE else "↓"
     unit = f" {esc(series.unit)}" if series.unit else ""
-
+    period = spec.period_seconds
     name = series_name(spec, series)
-    title = f"*[{severity}]* {provider} | {esc(name)} | {esc(series.metric)}"
-    compared = f"baseline {module.CENTER_LABEL}" if needs_baseline(spec.detector) else module.CENTER_LABEL
-    numbers = (
-        f"{arrow} Observed *{fmt(det.observed)}{unit}* vs {compared} "
-        f"*{fmt(det.center)}* ({module.SCORE_LABEL} = {det.score:+.1f}, "
-        f"{det.breaching} consecutive points)"
-    )
-    context = (
-        f"Window: {_stamp(anomaly.window_start)} to {_stamp(anomaly.window_end)} UTC"
-        f" | Scope: {esc(series.scope)} | Resource: {esc(series.resource)}"
-        f" | Detector: {spec.detector}"
-    )
-    recommendation = "*Recommended actions*\n" + "\n".join(
-        f"{i}. {esc(step)}" for i, step in enumerate(steps, 1)
-    )
 
-    blocks = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": title}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": numbers}},
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": context}]},
+    icon = _SEVERITY_ICONS.get(anomaly.severity, ":red_circle:")
+    header = f"{icon} {severity} · {name}"
+    parts = [provider, series.metric, series.resource]
+    if series.scope and series.scope != series.resource:
+        parts.append(series.scope)
+    where = " · ".join(esc(x) for x in parts if x)
+    usual_label = "Limit" if fixed_limit else f"Usual ({module.CENTER_LABEL})"
+    lasting = duration(det.breaching * period)
+    fields = [
+        f"*Now*\n{arrow} {fmt(det.observed)}{unit}",
+        f"*{usual_label}*\n{fmt(det.center)}{unit}",
+        f"*Change*\n{change_text(det.observed, det.center, det.direction, fixed_limit, unit)}",
+        f"*Lasting*\n{lasting}" + (f" ({det.breaching} periods)" if det.breaching > 1 else ""),
+        f"*Started*\n{when(anomaly.window_start)}",
+        f"*Period*\n{duration(period)}",
+    ]
+    detail = [
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": where}]},
+        {"type": "section", "fields": [{"type": "mrkdwn", "text": f} for f in fields]},
     ]
     if anomaly.recent:
-        blocks.append(
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"Last {len(anomaly.recent)} points: `{sparkline(anomaly.recent)}`",
-                },
-            }
+        span = duration(len(anomaly.recent) * period)
+        detail.append(
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"*Last {span}*  `{sparkline(anomaly.recent)}`"}}
         )
-    blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": recommendation}})
-
+    detail.append(
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*What to check*\n" + "\n".join(f"{i}. {esc(step)}" for i, step in enumerate(steps, 1)),
+            },
+        }
+    )
     buttons = []
     if series.console_url:
         buttons.append(_button("Open in console", series.console_url))
     if spec.runbook:
         buttons.append(_button("Runbook", spec.runbook))
     if buttons:
-        blocks.append({"type": "actions", "elements": buttons})
+        detail.append({"type": "actions", "elements": buttons})
+    how = (
+        f"Detector: {spec.detector}"
+        + ("" if fixed_limit else f" ({module.SCORE_LABEL} {det.score:+.1f}, threshold {fmt(spec.threshold)})")
+        + f" · Window {_stamp(anomaly.window_start)} to {_stamp(anomaly.window_end)} UTC"
+    )
+    detail.append({"type": "context", "elements": [{"type": "mrkdwn", "text": how}]})
 
     fallback = (
         f"[{severity}] {provider} {name} {series.metric}: "
-        f"{fmt(det.observed)} vs {'baseline' if needs_baseline(spec.detector) else 'limit'} {fmt(det.center)}"
+        f"{fmt(det.observed)} vs {'limit' if fixed_limit else 'baseline'} {fmt(det.center)}"
     )
     return {
         "text": fallback,
-        "attachments": [{"color": COLORS.get(anomaly.severity, COLORS["critical"]), "blocks": blocks}],
+        "blocks": [{"type": "header", "text": {"type": "plain_text", "text": header[:150], "emoji": True}}],
+        "attachments": [{"color": COLORS.get(anomaly.severity, COLORS["critical"]), "blocks": detail}],
     }
 
 
@@ -286,13 +331,26 @@ def build_digest_report(rows) -> Report:
     metric_noun = "metric" if len(rows) == 1 else "metrics"
     summary = f"*{len(rows)}* {metric_noun}" + "".join(f" | {part}" for part in parts)
 
-    shown = rows[:MAX_DIGEST_ROWS]
+    # A quiet limit check (an audit counter at zero) says nothing a count cannot, so those fold
+    # into one line and the lines left are the ones worth reading.
+    quiet = [r for r in rows if r.status == "ok" and getattr(r, "fixed_limit", False)]
+    listed = [r for r in rows if r not in quiet]
+    shown = listed[:MAX_DIGEST_ROWS]
     lines = [_digest_line(r) for r in shown]
-    if len(rows) > len(shown):
-        lines.append(f"_and {len(rows) - len(shown)} more_")
+    if len(listed) > len(shown):
+        lines.append(f"_and {len(listed) - len(shown)} more_")
 
     blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": summary}}]
     blocks += [{"type": "section", "text": {"type": "mrkdwn", "text": c}} for c in _chunk(lines)]
+    if quiet:
+        names = _listing([f"`{esc(r.name)}`" for r in quiet], limit=8)
+        noun = "limit check" if len(quiet) == 1 else "limit checks"
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": f":white_check_mark: {len(quiet)} {noun} quiet: {names}"[:2900]}],
+            }
+        )
     fallback = f"Health digest {status}: {len(rows)} {metric_noun}" + "".join(f", {p}" for p in parts)
     return Report("Health digest", status, level, blocks, fallback)
 

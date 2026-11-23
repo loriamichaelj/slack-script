@@ -138,7 +138,7 @@ class GroupedPipelineTests(unittest.TestCase):
         self.assertEqual((result.fetched, result.anomalies, result.posted), (2, 1, 1))
         payload = self.posted[0]
         self.assertIn("errors [proj-b]", payload["text"])
-        self.assertIn("Scope: proj-b", json.dumps(payload))
+        self.assertIn("GCP · CPUUtilization · proj-b", json.dumps(payload, ensure_ascii=False))
 
     def test_each_group_has_its_own_fingerprint_and_cooldown(self):
         fingerprints = {o.anomaly.fingerprint for o in pipeline.scan(self.cfg, self.pool, NOW) if o.anomaly}
