@@ -228,37 +228,48 @@ def build_heartbeat_report(
     anomalies = len(flagged)
     noun = "anomaly" if anomalies == 1 else "anomalies"
     errors = f"{len(failed)} fetch error{'' if len(failed) == 1 else 's'}"
-    summary = (
-        f"Checked *{checked}* of *{total}* metrics | *{anomalies}* {noun} right now | *{errors}*"
-    )
-    lines = [summary]
+    fields = [
+        f"*Metrics checked*\n{checked} of {total}",
+        f"*Anomalies now*\n{anomalies}",
+        f"*Fetch errors*\n{len(failed)}",
+    ]
     if clouds:
-        lines.append(
-            "By cloud: "
-            + " | ".join(f"{PROVIDER_LABELS.get(p, p)} {ok}/{n}" for p, (ok, n) in clouds.items())
+        fields.append(
+            "*By cloud*\n" + " · ".join(f"{PROVIDER_LABELS.get(p, p)} {ok}/{n}" for p, (ok, n) in clouds.items())
         )
+    body = [_fields(fields)]
     if flagged:
         items = [
             f"{_DIGEST_ICONS.get(sev, '')} `{esc(name)}` ({PROVIDER_LABELS.get(p, p)})".lstrip()
             for name, p, sev in flagged
         ]
-        lines.append(f"Anomalies now: {_listing(items)}")
+        body.append(_section(f"*Anomalies now*\n{_listing(items)}"))
     if failed:
-        lines.append(f"Could not fetch: {_listing([f'`{esc(name)}`' for name in failed])}")
+        body.append(_section(f"*Could not fetch*\n{_listing([f'`{esc(name)}`' for name in failed])}"))
     jobs = alert_jobs or {None: (None, 0)}
     if list(jobs) == [None]:
-        lines.append(f"Alert job: {_alert_job_text(now, *jobs[None])}")
+        body.append(_context(f"Alert job: {_alert_job_text(now, *jobs[None])}"))
     else:
-        lines.append("Alert jobs:")
-        lines += [
-            f"{PROVIDER_LABELS.get(p, p)}: {_alert_job_text(now, *job)}" for p, job in jobs.items()
-        ]
+        lines = [f"{PROVIDER_LABELS.get(p, p)}: {_alert_job_text(now, *job)}" for p, job in jobs.items()]
+        body.append(_section("*Alert jobs*\n" + "\n".join(lines)))
 
     fallback = (
         f"Heartbeat {status}: {checked}/{total} metrics checked, {anomalies} {noun}, {errors}"
     )
-    body = [{"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}}]
     return Report("Heartbeat", status, "warning" if degraded else "ok", body, fallback)
+
+
+def _section(text: str) -> dict:
+    return {"type": "section", "text": {"type": "mrkdwn", "text": text[:2900]}}
+
+
+def _fields(items: list[str]) -> dict:
+    """A two-column grid; Slack allows 10 fields of 2,000 characters each."""
+    return {"type": "section", "fields": [{"type": "mrkdwn", "text": t[:1900]} for t in items[:10]]}
+
+
+def _context(text: str) -> dict:
+    return {"type": "context", "elements": [{"type": "mrkdwn", "text": text[:2900]}]}
 
 
 # Digest rows are routine.DigestRow; only their attributes are used here, so no import.
@@ -363,35 +374,40 @@ def _pct_text(pct: float | None) -> str:
     return "" if pct is None else f" ({pct:+.0f}%)"
 
 
-def _cost_section(summary, show_day: bool = False) -> str:
-    """One account: the day's total, its change, month to date, and the top services."""
+def _cost_blocks(summary, show_day: bool = False) -> list[dict]:
+    """One account: a line saying how it is, a grid of the numbers, and the top services."""
     provider = PROVIDER_LABELS.get(summary.provider, summary.provider)
     name = f"*{esc(summary.spec.name)}* ({provider})"
     if show_day:
         name += f" on {summary.day}"
     if summary.total is None:
-        return f":hourglass_flowing_sand: {name}: no cost data for {summary.day} yet"
+        return [_section(f":hourglass_flowing_sand: {name}: no cost data for {summary.day} yet")]
     icon = {"over": ":rotating_light:", "warn": ":warning:"}.get(summary.budget_state) or (
         ":chart_with_upwards_trend:" if summary.spike else ":large_green_circle:"
     )
-    line = f"{icon} {name}: *{money(summary.total, summary.currency)}*"
+    cur = summary.currency
+    fields = [f"*Day*\n*{money(summary.total, cur)}*{_pct_text(summary.change_pct)}"]
     if summary.baseline is not None:
-        line += f" vs {money(summary.baseline, summary.currency)} daily average{_pct_text(summary.change_pct)}"
-    line += f" | month to date {money(summary.month_to_date, summary.currency)}"
+        fields.append(f"*Daily average*\n{money(summary.baseline, cur)}")
+    fields.append(f"*Month to date*\n{money(summary.month_to_date, cur)}")
     if summary.budget:
-        line += (
-            f" of {money(summary.budget, summary.currency)} budget ({summary.budget_used_pct:.0f}%)"
-            + (f", on pace for {money(summary.projected, summary.currency)}" if summary.projected is not None else "")
-        )
-    accounts = [
-        f"   account {esc(a.account)}: {money(a.amount, summary.currency)}{_pct_text(a.change_pct)}"
-        for a in summary.accounts
-    ]
-    services = [
-        f"   {esc(s.service)}: {money(s.amount, summary.currency)}{_pct_text(s.change_pct)}"
-        for s in summary.services
-    ]
-    return "\n".join([line, *accounts, *services])
+        budget = f"*Budget*\n{summary.budget_used_pct:.0f}% of {money(summary.budget, cur)}"
+        if summary.projected is not None:
+            budget += f", on pace for {money(summary.projected, cur)}"
+        fields.append(budget)
+    out = [_section(f"{icon} {name}"), _fields(fields)]
+    small = []
+    if summary.accounts:
+        small.append("Accounts: " + " · ".join(
+            f"{esc(a.account)} {money(a.amount, cur)}{_pct_text(a.change_pct)}" for a in summary.accounts
+        ))
+    if summary.services:
+        small.append("Top services: " + " · ".join(
+            f"{esc(x.service)} {money(x.amount, cur)}{_pct_text(x.change_pct)}" for x in summary.services
+        ))
+    if small:
+        out.append(_context("\n".join(small)))
+    return out
 
 
 def build_cost_payload(now, summaries, failed) -> dict:
@@ -432,12 +448,13 @@ def build_cost_report(summaries, failed) -> Report:
                 "text": {"type": "mrkdwn", "text": f"Total: *{money(total, currencies.pop())}*{own_days}"},
             }
         )
-    lines = [_cost_section(s, len(days) > 1) for s in sorted(summaries, key=lambda s: (not s.flagged, s.spec.name))]
-    lines += [
-        f":warning: *{esc(spec.name)}* ({PROVIDER_LABELS.get(spec.provider, spec.provider)}): could not fetch costs"
-        for spec in failed
-    ]
-    blocks += [{"type": "section", "text": {"type": "mrkdwn", "text": c}} for c in _chunk(lines)]
+    for summary in sorted(summaries, key=lambda s: (not s.flagged, s.spec.name)):
+        blocks += _cost_blocks(summary, len(days) > 1)
+    if failed:
+        blocks.append(_section("\n".join(
+            f":warning: *{esc(spec.name)}* ({PROVIDER_LABELS.get(spec.provider, spec.provider)}): could not fetch costs"
+            for spec in failed
+        )))
     parts = [f"{len(summaries) + len(failed)} account{'s' if len(summaries) + len(failed) != 1 else ''}"]
     if over:
         parts.append(f"{over} over budget")
