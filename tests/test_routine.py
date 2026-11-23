@@ -115,7 +115,7 @@ class HeartbeatTests(unittest.TestCase):
         specs = [make_spec(name="mem"), make_spec(name="cpu")]
         self.heartbeat({"mem": make_series(SPIKE_72), "cpu": make_series(QUIET_72)}, specs)
         text = all_text(self.posted[0])
-        self.assertIn("Anomalies now:", text)
+        self.assertIn("*Anomalies now*\\n", text)
         self.assertIn("`mem` (AWS)", text)
         self.assertNotIn("`cpu`", text)
 
@@ -126,13 +126,13 @@ class HeartbeatTests(unittest.TestCase):
         )
         text = all_text(payload)
         self.assertIn(":red_circle: `disk` (GCP), :large_orange_circle: `mem` (AWS)", text)
-        self.assertIn("*2* anomalies right now", text)
+        self.assertIn("*Anomalies now*\\n2", text)
 
     def test_breaks_counts_down_by_cloud(self):
         specs = [make_spec(name="cpu"), make_spec(name="vm", provider="azure"), make_spec(name="db")]
         data = {"cpu": make_series(QUIET_72), "vm": make_series(QUIET_72), "db": RuntimeError("x")}
         self.heartbeat(data, specs)
-        self.assertIn("By cloud: AWS 1/2 | Azure 1/1", all_text(self.posted[0]))
+        self.assertIn(r"*By cloud*\nAWS 1/2 \u00b7 Azure 1/1", all_text(self.posted[0]))  # as JSON
 
     def test_reports_the_alert_job_from_its_state_file(self):
         folder = tempfile.TemporaryDirectory()
@@ -171,7 +171,7 @@ class HeartbeatTests(unittest.TestCase):
         fake = FakeProvider({"cpu": make_series(QUIET_72)})
         routine.run_heartbeat(cfg, ProviderPool({"aws": fake}), self.posted.append, NOW)
         text = all_text(self.posted[0])
-        self.assertIn("Alert jobs:", text)
+        self.assertIn("*Alert jobs*", text)
         self.assertIn("AWS: last run *3 min ago* | *1* anomaly alerted in the last 24 h", text)
         self.assertIn("Azure: last run *5 h ago*", text)
         self.assertIn("GCP: no run recorded yet", text)

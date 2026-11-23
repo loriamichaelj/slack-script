@@ -208,7 +208,7 @@ class BudgetPayloadTests(unittest.TestCase):
 
     def test_budget_line_shows_spend_percentage_and_pace(self):
         text = all_text(self.payload(self.flat_rows(0.05), budget=3.0))
-        self.assertIn("of 3.00 USD budget (47%), on pace for 1.55 USD", text)
+        self.assertIn(r"*Budget*\n47% of 3.00 USD, on pace for 1.55 USD", text)
         self.assertIn("Cost report for 2026-10-28: OK", text)
 
     def test_near_budget_has_its_own_status(self):
@@ -229,8 +229,9 @@ class BudgetPayloadTests(unittest.TestCase):
     def test_account_breakdown_lines_are_shown(self):
         rows = [DailyCost(DAY - timedelta(days=i), "EC2", 1.0, a) for i in range(0, 8) for a in ("111", "222")]
         text = all_text(self.payload(rows))
-        self.assertIn("account 222: 1.00 USD", text)
-        self.assertIn("account 111: 1.00 USD", text)
+        self.assertIn("Accounts: ", text)
+        self.assertIn("222 1.00 USD", text)
+        self.assertIn("111 1.00 USD", text)
 
     def test_the_run_counts_a_budget_warning_as_flagged(self):
         pool = CostProviderPool({"aws": FakeCost({"aws-main": data(self.flat_rows(0.12))})})
@@ -259,9 +260,10 @@ class RunCostTests(unittest.TestCase):
         self.assertEqual(payload["text"], "Cost report for 2026-10-28 OK: 1 account")
         self.assertEqual(payload["attachments"][0]["color"], blocks.COLORS["ok"])
         text = all_text(payload)
-        self.assertIn("*100.00 USD* vs 100.00 USD daily average (+0%)", text)
-        self.assertIn("month to date 800.00 USD", text)  # the fake data covers 8 days
-        self.assertIn("EC2: 100.00 USD (+0%)", text)
+        self.assertIn(r"*Day*\n*100.00 USD* (+0%)", text)
+        self.assertIn(r"*Daily average*\n100.00 USD", text)
+        self.assertIn(r"*Month to date*\n800.00 USD", text)  # the fake data covers 8 days
+        self.assertIn("Top services: EC2 100.00 USD (+0%)", text)
 
     def test_fetches_the_report_window(self):
         fake = FakeCost({"aws-main": data([])})
