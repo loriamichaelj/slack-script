@@ -3,13 +3,18 @@
 # on any count above zero. Custom metrics are free up to 10 per account; this adds 7.
 
 locals {
+  # AWS services acting on their own (KMS keeping a multi-region key in sync, a service creating
+  # its service-linked role) call from an *.amazonaws.com host, not an IP. They are not changes
+  # anyone made, so the change metrics leave them out.
+  not_a_service = "$.sourceIPAddress != \"*.amazonaws.com\""
+
   audit_filters = {
     # The root user doing anything, or a console sign-in without MFA.
     "RootOrNoMfaSignIn" = "{ ($.userIdentity.type = \"Root\" && $.userIdentity.invokedBy NOT EXISTS && $.eventType != \"AwsServiceEvent\") || ($.eventName = \"ConsoleLogin\" && $.additionalEventData.MFAUsed != \"Yes\" && $.userIdentity.type = \"IAMUser\") }"
 
     # Any change to IAM or to Organizations (policies, roles, users, SCPs). Terraform applies make
     # these too, so the alert is a prompt to confirm, not a verdict.
-    "IamChanges" = "{ (($.eventSource = \"iam.amazonaws.com\") || ($.eventSource = \"organizations.amazonaws.com\")) && ($.readOnly IS FALSE) && ($.errorCode NOT EXISTS) }"
+    "IamChanges" = "{ (($.eventSource = \"iam.amazonaws.com\") || ($.eventSource = \"organizations.amazonaws.com\")) && ($.readOnly IS FALSE) && ($.errorCode NOT EXISTS) && (${local.not_a_service}) }"
 
     # Long-lived credentials: the account has no IAM users, so any of these is new.
     "AccessKeyCreated" = "{ ($.eventName = \"CreateAccessKey\") || ($.eventName = \"CreateLoginProfile\") || ($.eventName = \"UpdateLoginProfile\") }"
@@ -22,7 +27,7 @@ locals {
 
     # Changes made outside the home region. Everything here runs in one region, so a write
     # anywhere else is new footprint, or someone else's.
-    "OutsideHomeRegion" = "{ ($.awsRegion != \"${var.region}\") && ($.readOnly IS FALSE) && ($.eventType = \"AwsApiCall\") }"
+    "OutsideHomeRegion" = "{ ($.awsRegion != \"${var.region}\") && ($.readOnly IS FALSE) && ($.eventType = \"AwsApiCall\") && (${local.not_a_service}) }"
 
     # A KMS key disabled or scheduled for deletion makes what it encrypted unreadable.
     "KmsKeyDisabled" = "{ ($.eventSource = \"kms.amazonaws.com\") && (($.eventName = \"DisableKey\") || ($.eventName = \"ScheduleKeyDeletion\")) }"
