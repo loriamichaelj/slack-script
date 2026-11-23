@@ -13,8 +13,8 @@ import yaml
 from . import azureblob
 from .cost.gcp import TABLE_PATTERN as _BILLING_TABLE
 from .cost.report import CostSettings
-from .detectors import DETECTORS
-from .models import BOTH, DROP, SPIKE, CostSpec, MetricSpec
+from .detectors import DETECTORS, needs_baseline
+from .models import BOTH, CRITICAL, DROP, SPIKE, WARNING, CostSpec, MetricSpec
 
 
 class ConfigError(Exception):
@@ -29,6 +29,7 @@ _SHARED_KEYS = {"cloud", "clouds", "channel", "bot_token_env", "time_zone"}
 _TUNING_KEYS = {
     "category", "direction", "lookback", "period", "detector", "threshold",
     "min_points", "sustained_points", "min_abs_change", "alpha", "fill_missing", "runbook",
+    "severity",
 }
 _METRIC_KEYS = _TUNING_KEYS | {"name", "provider"}
 
@@ -36,6 +37,10 @@ _SELECTORS = {
     "aws": ({"region", "namespace", "metric"}, {"dimensions", "stat"}),
     "azure": ({"resource_id", "metric"}, {"aggregation", "namespace"}),
     "gcp": ({"project", "metric_type"}, {"filter", "aligner", "reducer", "group_by"}),
+}
+# A metric with one of these keys counts log rows instead of reading a cloud metric.
+_LOG_SELECTORS = {
+    "azure": ({"workspace_id", "query"}, set()),
 }
 
 _COST_KEYS = {
@@ -138,7 +143,10 @@ def _build_spec(entry, defaults: dict, index: int) -> MetricSpec:
     provider = entry.get("provider")
     if provider not in _SELECTORS:
         raise ConfigError(f"{label}: provider must be one of {sorted(_SELECTORS)}, got {provider!r}")
-    selector = _selector(entry, _METRIC_KEYS, _SELECTORS, provider, label)
+    logs = provider in _LOG_SELECTORS and "workspace_id" in entry
+    selector = _selector(entry, _METRIC_KEYS, _LOG_SELECTORS if logs else _SELECTORS, provider, label)
+    if logs and (not isinstance(selector["query"], str) or not selector["query"].strip()):
+        raise ConfigError(f"{label}: query must be a non-empty KQL query")
     group_by = selector.get("group_by")
     if group_by is not None and (
         not isinstance(group_by, list) or not group_by
@@ -148,12 +156,23 @@ def _build_spec(entry, defaults: dict, index: int) -> MetricSpec:
 
     merged = {**defaults, **{k: v for k, v in entry.items() if k in _TUNING_KEYS}}
     detector = _choice(merged, "detector", "mad", DETECTORS, label)
-    threshold = _number(
-        merged, "threshold", DETECTORS[detector].DEFAULT_THRESHOLD, label, minimum=0.1
-    )
+    baseline = needs_baseline(detector)
+    direction = _choice(merged, "direction", BOTH, {SPIKE, DROP, BOTH}, label)
+    if baseline:
+        threshold = _number(
+            merged, "threshold", DETECTORS[detector].DEFAULT_THRESHOLD, label, minimum=0.1
+        )
+    else:
+        # The threshold is the limit itself, so any number goes, and one side must be chosen.
+        if "threshold" not in merged:
+            raise ConfigError(f"{label}: detector {detector} needs threshold, the limit to alert past")
+        threshold = _number(merged, "threshold", 0, label)
+        if direction == BOTH:
+            raise ConfigError(f"{label}: detector {detector} needs direction spike (above) or drop (below)")
     lookback = parse_duration(merged.get("lookback", "24h"), f"{label}: lookback")
     period = parse_duration(merged.get("period", "5m"), f"{label}: period")
-    min_points = _number(merged, "min_points", 30, label, integer=True, minimum=5)
+    # A fixed limit needs no history, so min_points does not apply to it.
+    min_points = _number(merged, "min_points", 30, label, integer=True, minimum=5) if baseline else 0
     sustained = _number(merged, "sustained_points", 3, label, integer=True, minimum=1)
     if lookback // period < min_points + sustained:
         raise ConfigError(
@@ -169,7 +188,7 @@ def _build_spec(entry, defaults: dict, index: int) -> MetricSpec:
         provider=provider,
         selector=selector,
         category=str(merged.get("category", "generic")),
-        direction=_choice(merged, "direction", BOTH, {SPIKE, DROP, BOTH}, label),
+        direction=direction,
         lookback_seconds=lookback,
         period_seconds=period,
         detector=detector,
@@ -180,6 +199,11 @@ def _build_spec(entry, defaults: dict, index: int) -> MetricSpec:
         alpha=_number(merged, "alpha", 0.3, label, minimum=0.01, maximum=1),
         fill_missing=_choice(merged, "fill_missing", "drop", {"drop", "zero"}, label),
         runbook=runbook,
+        severity=(
+            _choice(merged, "severity", None, {WARNING, CRITICAL}, label)
+            if merged.get("severity") is not None
+            else None
+        ),
     )
 
 

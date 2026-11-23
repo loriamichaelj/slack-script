@@ -29,6 +29,7 @@ class MetricSpec:
     alpha: float = 0.3  # EWMA smoothing factor
     fill_missing: str = "drop"  # "drop" or "zero"
     runbook: str | None = None
+    severity: str | None = None  # fixed severity; None derives it from how far the values went
 
 
 @dataclass(frozen=True)

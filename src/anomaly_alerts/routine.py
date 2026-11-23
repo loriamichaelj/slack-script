@@ -11,7 +11,7 @@ from . import pipeline
 from .config import Config
 from .cost import CostProviderPool
 from .cost import report as cost_report
-from .detectors import DETECTORS
+from .detectors import DETECTORS, needs_baseline
 from .models import SEVERITY_RANK, series_name
 from .providers import ProviderPool
 from .slack import blocks
@@ -139,6 +139,8 @@ def _row(outcome: pipeline.MetricOutcome) -> DigestRow:
         return DigestRow(status=det.severity, latest=det.observed, center=det.center, **common)
     if len(values) < common["needed"]:
         return DigestRow(status=LEARNING, latest=values[-1] if values else None, **common)
+    if not needs_baseline(spec.detector):
+        return DigestRow(status=OK, latest=values[-1], center=spec.threshold, **common)
     k = spec.sustained_points
     scored = DETECTORS[spec.detector].score(values[:-k], values[-k:], alpha=spec.alpha)
     return DigestRow(status=OK, latest=values[-1], center=scored.center, **common)

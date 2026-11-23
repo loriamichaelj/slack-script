@@ -1,18 +1,21 @@
 import unittest
 
-from anomaly_alerts.detectors import DETECTORS, ewma, iqr, mad, zscore
+from anomaly_alerts.detectors import DETECTORS, ewma, iqr, mad, needs_baseline, zscore
+
+# The statistical detectors; the threshold detector compares to a fixed limit instead.
+STATISTICAL = {n: m for n, m in DETECTORS.items() if needs_baseline(n)}
 from helpers import BASE
 
 
 class DetectorTests(unittest.TestCase):
     def test_in_range_scores_near_zero(self):
-        for name, module in DETECTORS.items():
+        for name, module in STATISTICAL.items():
             with self.subTest(detector=name):
                 scored = module.score(BASE, [12.0])
                 self.assertLess(abs(scored.scores[0]), 1.0)
 
     def test_spike_scores_high_and_drop_scores_negative(self):
-        for name, module in DETECTORS.items():
+        for name, module in STATISTICAL.items():
             with self.subTest(detector=name):
                 up = module.score(BASE, [50.0]).scores[0]
                 down = module.score(BASE, [-30.0]).scores[0]
@@ -21,7 +24,7 @@ class DetectorTests(unittest.TestCase):
 
     def test_flat_baseline_has_no_scores(self):
         flat = [7.0] * 40
-        for name, module in DETECTORS.items():
+        for name, module in STATISTICAL.items():
             with self.subTest(detector=name):
                 scored = module.score(flat, [9.0])
                 self.assertIsNone(scored.scores)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..detectors import DETECTORS
+from ..detectors import DETECTORS, needs_baseline
 from ..models import CRITICAL, SPIKE, Anomaly, series_name
 
 COLORS = {"critical": "#d1242f", "warning": "#d4a72c", "ok": "#2da44e"}
@@ -78,8 +78,9 @@ def build_payload(anomaly: Anomaly, steps: list[str]) -> dict:
 
     name = series_name(spec, series)
     title = f"*[{severity}]* {provider} | {esc(name)} | {esc(series.metric)}"
+    compared = f"baseline {module.CENTER_LABEL}" if needs_baseline(spec.detector) else module.CENTER_LABEL
     numbers = (
-        f"{arrow} Observed *{fmt(det.observed)}{unit}* vs baseline {module.CENTER_LABEL} "
+        f"{arrow} Observed *{fmt(det.observed)}{unit}* vs {compared} "
         f"*{fmt(det.center)}* ({module.SCORE_LABEL} = {det.score:+.1f}, "
         f"{det.breaching} consecutive points)"
     )
@@ -119,7 +120,7 @@ def build_payload(anomaly: Anomaly, steps: list[str]) -> dict:
 
     fallback = (
         f"[{severity}] {provider} {name} {series.metric}: "
-        f"{fmt(det.observed)} vs baseline {fmt(det.center)}"
+        f"{fmt(det.observed)} vs {'baseline' if needs_baseline(spec.detector) else 'limit'} {fmt(det.center)}"
     )
     return {
         "text": fallback,

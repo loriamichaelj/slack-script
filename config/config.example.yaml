@@ -37,6 +37,10 @@ actions_file: actions.yaml         # relative to this file
 # Applied to every metric unless the metric overrides it.
 # `threshold` is left out on purpose: each detector has its own default
 # (mad 3.5, zscore 3.0, ewma 3.0, iqr 1.5). Set it only to override.
+# The `threshold` detector is different: it compares to a fixed limit instead of a learned
+# baseline, so it alerts from the first point and never learns a bad level as normal. There
+# `threshold` is the limit (required) and `direction` must be spike (above) or drop (below).
+# Any metric can set `severity: warning` or `severity: critical` to fix its alert's severity.
 defaults:
   lookback: 24h
   period: 5m
@@ -45,7 +49,7 @@ defaults:
   sustained_points: 3
 
 # Every metric is fetched on every run, so cost grows with this list. Aim for 10 to 15
-# that matter (see "Keeping the bill low" in the README).
+# that matter, and prefer one metric split by group_by over many near-identical ones.
 metrics:
   - name: alb-5xx
     provider: aws
@@ -92,6 +96,20 @@ metrics:
     direction: spike
     fill_missing: zero             # no error logs in a period means zero
     min_abs_change: 10
+
+  # An audit event that matters every time: any period with one alerts. Audit logs become
+  # numbers on each cloud: a CloudWatch Logs metric filter (AWS), a log-based metric (GCP),
+  # or, on Azure, a KQL query whose rows are counted per period, as here.
+  - name: role-assignments
+    provider: azure
+    workspace_id: 00000000-0000-0000-0000-000000000000  # the Log Analytics workspace (customer) ID
+    query: AzureActivity | where OperationNameValue =~ "Microsoft.Authorization/roleAssignments/write"
+    category: security
+    detector: threshold
+    threshold: 0
+    direction: spike
+    sustained_points: 1
+    severity: critical
 
 # Optional: spend per account for `anomaly-alerts routine --kind cost`, run once a day.
 # Reports the day lag_days ago against the average of the baseline_days before it.
