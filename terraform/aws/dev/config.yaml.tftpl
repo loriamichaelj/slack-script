@@ -70,13 +70,16 @@ metrics:
 
   # Account-wide audit events from the platform-audit trail (terraform/aws/org audit.tf). Each
   # match counts 1, and any count above zero alerts. Each adds about $0.09 a month in reads.
+  # CloudTrail delivers events 5 to 15 minutes late, counted at the time they happened, so 30
+  # minute periods leave room for late ones: only complete periods are tested.
   - name: aws-RootOrNoMfaSignIn  # the root user did something, or someone signed in without MFA
     provider: aws
     region: ${region}
     namespace: PlatformAudit
     metric: RootOrNoMfaSignIn
     stat: Sum
-    lookback: 1h
+    lookback: 3h
+    period: 30m
     category: security
     detector: threshold
     threshold: 0
@@ -91,7 +94,8 @@ metrics:
     namespace: PlatformAudit
     metric: IamChanges
     stat: Sum
-    lookback: 1h
+    lookback: 3h
+    period: 30m
     category: security
     detector: threshold
     threshold: 0
@@ -106,7 +110,8 @@ metrics:
     namespace: PlatformAudit
     metric: AccessKeyCreated
     stat: Sum
-    lookback: 1h
+    lookback: 3h
+    period: 30m
     category: security
     detector: threshold
     threshold: 0
@@ -121,7 +126,8 @@ metrics:
     namespace: PlatformAudit
     metric: LoggingChanged
     stat: Sum
-    lookback: 1h
+    lookback: 3h
+    period: 30m
     category: security
     detector: threshold
     threshold: 0
@@ -136,7 +142,8 @@ metrics:
     namespace: PlatformAudit
     metric: MadePublic
     stat: Sum
-    lookback: 1h
+    lookback: 3h
+    period: 30m
     category: security
     detector: threshold
     threshold: 0
@@ -151,7 +158,8 @@ metrics:
     namespace: PlatformAudit
     metric: OutsideHomeRegion
     stat: Sum
-    lookback: 1h
+    lookback: 3h
+    period: 30m
     category: security
     detector: threshold
     threshold: 0
@@ -166,7 +174,8 @@ metrics:
     namespace: PlatformAudit
     metric: KmsKeyDisabled
     stat: Sum
-    lookback: 1h
+    lookback: 3h
+    period: 30m
     category: security
     detector: threshold
     threshold: 0
