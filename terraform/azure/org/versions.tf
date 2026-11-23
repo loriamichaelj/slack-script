@@ -21,6 +21,10 @@ terraform {
 provider "azurerm" {
   features {}
 
-  storage_use_azuread             = true
+  storage_use_azuread = true
+
+  # The Activity Log export needs these registered on the subscription. Owners can register
+  # them, so this root does, and a fresh subscription needs no manual step.
   resource_provider_registrations = "none"
+  resource_providers_to_register  = ["Microsoft.Insights", "Microsoft.OperationalInsights"]
 }
