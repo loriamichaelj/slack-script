@@ -27,7 +27,11 @@ VALUES = {
 
 EXPECTED_METRICS = {
     "gcp": {"org-error-logs", "org-api-errors", "cloud-run-job-failures", "anomaly-run-succeeded"},
-    "aws": {"lambda-errors", "lambda-invocations", "lambda-duration"},
+    "aws": {
+        "lambda-errors", "lambda-invocations", "lambda-duration", "aws-RootOrNoMfaSignIn", "aws-IamChanges",
+        "aws-AccessKeyCreated", "aws-LoggingChanged", "aws-MadePublic", "aws-OutsideHomeRegion",
+        "aws-KmsKeyDisabled",
+    },
     "azure": {"state-account-transactions"},
 }
 
