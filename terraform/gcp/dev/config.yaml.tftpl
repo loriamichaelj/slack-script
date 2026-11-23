@@ -96,13 +96,16 @@ metrics:
 
   # Audit events from every org project, as log-based metrics on the org log bucket
   # (terraform/gcp/org audit.tf). Any one alerts, split by the project it came from.
+  # Log entries arrive a minute or more after they happen but count at the time they happened,
+  # so 30 minute periods leave room for late ones: only complete periods are tested.
   - name: audit-iam-changes  # IAM or org policy changed on the org, a folder or a project
     provider: gcp
     project: ${project_id}
     metric_type: logging.googleapis.com/user/audit-iam-changes
     aligner: ALIGN_DELTA
     group_by: [metric.labels.source]
-    lookback: 1h
+    lookback: 3h
+    period: 30m
     category: security
     detector: threshold
     threshold: 0
@@ -117,7 +120,8 @@ metrics:
     metric_type: logging.googleapis.com/user/audit-new-footprint
     aligner: ALIGN_DELTA
     group_by: [metric.labels.source]
-    lookback: 1h
+    lookback: 3h
+    period: 30m
     category: security
     detector: threshold
     threshold: 0
@@ -132,7 +136,8 @@ metrics:
     metric_type: logging.googleapis.com/user/audit-sa-key-created
     aligner: ALIGN_DELTA
     group_by: [metric.labels.source]
-    lookback: 1h
+    lookback: 3h
+    period: 30m
     category: security
     detector: threshold
     threshold: 0
@@ -147,7 +152,8 @@ metrics:
     metric_type: logging.googleapis.com/user/audit-logging-changed
     aligner: ALIGN_DELTA
     group_by: [metric.labels.source]
-    lookback: 1h
+    lookback: 3h
+    period: 30m
     category: security
     detector: threshold
     threshold: 0
@@ -162,7 +168,8 @@ metrics:
     metric_type: logging.googleapis.com/user/audit-made-public
     aligner: ALIGN_DELTA
     group_by: [metric.labels.source]
-    lookback: 1h
+    lookback: 3h
+    period: 30m
     category: security
     detector: threshold
     threshold: 0
@@ -177,7 +184,8 @@ metrics:
     metric_type: logging.googleapis.com/user/audit-kms-key-destroyed
     aligner: ALIGN_DELTA
     group_by: [metric.labels.source]
-    lookback: 1h
+    lookback: 3h
+    period: 30m
     category: security
     detector: threshold
     threshold: 0
