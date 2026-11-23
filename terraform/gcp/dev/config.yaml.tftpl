@@ -20,6 +20,10 @@ slack:
 state:
   path: ${mount_path}/state/alerts.json
 
+# The alert job runs every 10 minutes on GCP (terraform/gcp/dev/jobs.tf). Metrics read once per
+# period (`every`) use this to know which run is the first after each boundary.
+run_every: 10m
+
 actions_file: /app/config/actions.yaml
 
 defaults:
@@ -69,14 +73,15 @@ metrics:
     fill_missing: zero
     min_abs_change: 1
 
-  # The alert job runs every 5 minutes, so one run finishes in each period. Three empty periods in
-  # a row mean the schedule has stopped. One or two missed runs stay quiet.
+  # The alert job runs every 10 minutes, so one run finishes in each period. Three empty periods
+  # in a row mean the schedule has stopped. One or two missed runs stay quiet.
   - name: anomaly-run-succeeded
     provider: gcp
     project: ${project_id}
     metric_type: run.googleapis.com/job/completed_execution_count
     filter: 'metric.labels.result = "succeeded" AND resource.labels.job_name = "anomaly-run"'
     aligner: ALIGN_DELTA
+    period: 10m
     category: availability
     direction: drop
     fill_missing: zero
