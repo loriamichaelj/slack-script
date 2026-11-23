@@ -1,6 +1,6 @@
 # Rendered by terraform/aws/dev into the app bucket, and downloaded by the Lambda at
 # the start of every run. Edit the template, not the bucket object: the next apply
-# overwrites it. Webhook URLs come from Secrets Manager, never from this file.
+# overwrites it. Webhook URLs come from SSM Parameter Store, never from this file.
 slack:
   webhook_env: SLACK_WEBHOOK_URL
   routine_webhook_env: SLACK_ROUTINE_WEBHOOK_URL
