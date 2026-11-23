@@ -55,7 +55,7 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(len(names), len(set(names)))
 
     def test_every_seed_and_dev_root_in_terraform_is_registered_or_exempt(self):
-        exempt = {"gcp/org", "aws/org", "azure/org"}  # applied by hand, never by a workflow
+        exempt = {"gcp/org"}  # applied by hand: it needs org-wide roles the GitHub identities do not have
         on_disk = {f"{p.parent.name}/{p.name}" for p in (ROOT / "terraform").glob("*/*") if p.is_dir()}
         listed = {f"{e['cloud']}/{e['root']}" for e in registry()}
         self.assertEqual(on_disk - exempt - listed, set(), "a Terraform root is missing from the registry")
@@ -72,7 +72,7 @@ class SelectRootsTests(unittest.TestCase):
 
     def test_a_cloud_that_is_not_bootstrapped_is_dropped(self):
         self.assertEqual(select("all", ONLY_READY="1"), [])
-        self.assertEqual(select("all", ONLY_READY="1", AWS_ACCOUNT_ID="1"), ["aws/seed", "aws/dev"])
+        self.assertEqual(select("all", ONLY_READY="1", AWS_ACCOUNT_ID="1"), ["aws/seed", "aws/dev", "aws/org"])
         self.assertEqual(select("all", ONLY_READY="1", GCP_WORKLOAD_IDENTITY_PROVIDER="p"), ["gcp/seed", "gcp/dev"])
 
     def test_azure_needs_both_its_tenant_and_its_subscription(self):
@@ -85,6 +85,7 @@ class SelectRootsTests(unittest.TestCase):
         ready = dict(ONLY_READY="1", AZURE_TENANT_ID="t", AZURE_SUBSCRIPTION_ID="s", AWS_ACCOUNT_ID="1")
         self.assertIn("azure/seed", select("all", **ready))
         self.assertNotIn("azure/seed", select("all", FOR_APPLY="1", **ready))
+        self.assertIn("azure/org", select("all", FOR_APPLY="1", **ready))  # org roots are applied by the workflow
         self.assertIn("aws/dev", select("all", FOR_APPLY="1", **ready))
 
     def test_changed_without_a_base_means_everything(self):

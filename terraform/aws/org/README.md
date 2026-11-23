@@ -7,7 +7,7 @@ Turns on CloudTrail for the whole account and turns the events that matter into 
 
 The first copy of management events is free. The 7 metrics fit in the free 10 custom metrics, and log ingestion is a few cents a month at this account's volume.
 
-Apply this from your machine, not from GitHub: it changes account-wide logging, which the GitHub roles are not allowed to do.
+`.github/workflows/tf-apply.yml` applies it when a push to `dev` changes this directory, as `seed-admin` in the `SEED` environment, so each apply waits for your approval. Pull requests get a read-only plan. To apply by hand instead:
 
 ```bash
 cd terraform/aws/org
