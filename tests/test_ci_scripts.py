@@ -55,7 +55,7 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(len(names), len(set(names)))
 
     def test_every_seed_and_dev_root_in_terraform_is_registered_or_exempt(self):
-        exempt = {"gcp/org"}  # applied by hand, never by a workflow
+        exempt = {"gcp/org", "aws/org", "azure/org"}  # applied by hand, never by a workflow
         on_disk = {f"{p.parent.name}/{p.name}" for p in (ROOT / "terraform").glob("*/*") if p.is_dir()}
         listed = {f"{e['cloud']}/{e['root']}" for e in registry()}
         self.assertEqual(on_disk - exempt - listed, set(), "a Terraform root is missing from the registry")

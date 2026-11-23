@@ -21,6 +21,7 @@ VALUES = {
         "state_url": "https://acct.blob.core.windows.net/app/state/alerts.json",
         "state_account_id": "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/acct",
         "subscription_scope": "/subscriptions/s",
+        "audit_workspace_id": "00000000-0000-0000-0000-000000000000",
         "budget": "5",
     },
 }
@@ -28,7 +29,10 @@ VALUES = {
 EXPECTED_METRICS = {
     "gcp": {"org-error-logs", "org-api-errors", "cloud-run-job-failures", "anomaly-run-succeeded"},
     "aws": {"lambda-errors", "lambda-invocations", "lambda-duration"},
-    "azure": {"state-account-transactions"},
+    "azure": {
+        "state-account-transactions", "azure-role-changes", "azure-logging-changed", "azure-network-exposure",
+        "azure-key-vault-changed", "azure-new-footprint", "azure-security-alerts", "azure-service-health",
+    },
 }
 
 # The metric on each cloud that proves the 5 minute schedule is still running.

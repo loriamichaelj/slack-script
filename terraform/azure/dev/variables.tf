@@ -55,3 +55,15 @@ variable "budget" {
   type        = number
   default     = 5
 }
+
+variable "audit_workspace" {
+  description = "Log Analytics workspace that holds the subscription's Activity Log (terraform/azure/org)."
+  type        = string
+  default     = "log-platform-audit"
+}
+
+variable "audit_resource_group" {
+  description = "Resource group of audit_workspace."
+  type        = string
+  default     = "rg-platform-audit"
+}

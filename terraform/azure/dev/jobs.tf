@@ -39,6 +39,7 @@ locals {
     state_url          = "${azurerm_storage_account.app.primary_blob_endpoint}${azurerm_storage_container.app.name}/state/alerts.json"
     state_account_id   = azurerm_storage_account.app.id
     subscription_scope = data.azurerm_subscription.current.id
+    audit_workspace_id = data.azurerm_log_analytics_workspace.audit.workspace_id
     budget             = var.budget
     slack_channel_id   = var.slack_channel_id
     time_zone          = var.time_zone
