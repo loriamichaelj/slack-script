@@ -2,12 +2,8 @@
 
 ## Overview
 
-Watches metrics on AWS, Azure and GCP and posts a Slack alert when there is an anomaly. It runs on a schedule, makes one pass, and exits.
+Watches metrics on AWS, Azure and GCP and posts a Slack alert when there is an anomaly. It runs on a schedule, makes one pass, and exits, and the same image runs on Lambda, Cloud Run and Azure Container Apps.
 
-Each run reads the configured metrics from the cloud's own monitoring service and compares the newest points to earlier ones with a statistical detector. It alerts only when the change is large, lasts several points, and goes in a direction the metric cares about. An alert carries the baseline, the observed value, a console link and suggested next steps, and a cooldown stops repeats.
+Each run reads the configured metrics from the cloud's own monitoring service and compares the newest points to earlier ones with a statistical detector. It alerts only when the change is large, lasts several points, and goes in the direction the metric cares about. An alert carries the baseline, the observed value, a console link and suggested next steps, and a cooldown stops repeats.
 
-Scheduled routine reports run alongside the alerts: a heartbeat, a daily health digest of every metric, and a daily cost report per account.
-
-Each cloud runs its own routine jobs, but they share one Slack message per report. With `slack.shared_message` set in each cloud's config (see `config/config.example.yaml`), the first job to run posts the message and the others add their section to it a few minutes later, and a cloud that has not reported shows as waiting. This needs a Slack bot token rather than the webhook, because a webhook cannot edit a message ([setup](examples/slack-app.md)). Without the token, a job posts its own message to the webhook, so a report is never lost.
-
-The schedule, in New York time, is the same on every cloud: heartbeat at 00:00, 06:00, 12:00 and 18:00, health digest at 09:00 and cost report at 09:30, with the clouds a few minutes apart (AWS on the hour, GCP +2, Azure +4).
+Routine reports run alongside the alerts: a heartbeat at 00:00, 06:00, 12:00 and 18:00 New York time, a health digest at 09:00 and a cost report at 09:30. Every cloud fills in one shared Slack message per report, a few minutes apart, which needs a Slack bot token ([setup](examples/slack-app.md)); without it, each cloud posts its own message to the webhook.
