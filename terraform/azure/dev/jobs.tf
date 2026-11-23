@@ -39,7 +39,10 @@ locals {
     state_url          = "${azurerm_storage_account.app.primary_blob_endpoint}${azurerm_storage_container.app.name}/state/alerts.json"
     state_account_id   = azurerm_storage_account.app.id
     subscription_scope = data.azurerm_subscription.current.id
-    audit_workspace_id = data.azurerm_log_analytics_workspace.audit.workspace_id
+    # The workspace terraform/azure/org sends the Activity Log to, by resource ID. It is built,
+    # not looked up, so this root applies whether or not that one has been applied yet; until
+    # it is, the audit metrics show as fetch errors in the heartbeat.
+    audit_workspace_id = "${data.azurerm_subscription.current.id}/resourceGroups/${var.audit_resource_group}/providers/Microsoft.OperationalInsights/workspaces/${var.audit_workspace}"
     budget             = var.budget
     slack_channel_id   = var.slack_channel_id
     time_zone          = var.time_zone

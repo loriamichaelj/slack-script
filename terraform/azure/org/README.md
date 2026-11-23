@@ -2,13 +2,13 @@
 
 Sends the subscription's Activity Log to the `log-platform-audit` workspace, so the alert job can watch the whole subscription, not only its own jobs. The log records every create, change and delete, plus Defender security alerts and service health notices.
 
-`terraform/azure/dev` looks the workspace up by name and gives its ID to the alert job, which counts the events that matter with KQL queries: role assignments changed, logging changed, network exposure, Key Vault changes, resource groups created or deleted, security alerts and service health. The runtime identity already has Monitoring Reader on the subscription, which covers the queries.
+`terraform/azure/dev` gives the workspace's resource ID to the alert job (built from its name, so DEV applies before or after this root), which counts the events that matter with KQL queries: role assignments changed, logging changed, network exposure, Key Vault changes, resource groups created or deleted, security alerts and service health. The runtime identity already has Monitoring Reader on the subscription, which covers the queries.
 
 Activity Log data is free to ingest and keep for 90 days, so this costs nothing at this volume. A daily cap of 0.5 GB stops anything else from running up a bill.
 
 Entra ID sign-in and audit logs are not included: exporting them needs an Entra ID P1 license.
 
-Apply this from your machine, not from GitHub: it changes subscription-wide logging, which the GitHub identities are not allowed to do. Apply it before `terraform/azure/dev`, which reads the workspace.
+Apply this from your machine, not from GitHub: it changes subscription-wide logging, which the GitHub identities are not allowed to do.
 
 The state goes in the SEED container, so you need blob data access to it. If `terraform init` fails with `AuthorizationPermissionMismatch`, grant it to yourself first (it takes a minute to apply):
 

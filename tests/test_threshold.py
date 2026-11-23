@@ -129,6 +129,13 @@ class FakeLogs:
 
     def query_workspace(self, workspace_id, query, timespan):
         self.call = (workspace_id, query, timespan)
+        return self._result()
+
+    def query_resource(self, resource_id, query, timespan):
+        self.call = ("resource", resource_id, query, timespan)
+        return self._result()
+
+    def _result(self):
         if self.partial:
             return NS(partial_error=self.partial, partial_data=[])
         return NS(tables=[NS(columns=["TimeGenerated", "value"], rows=self.rows)])
@@ -151,6 +158,14 @@ class AzureLogProviderTests(unittest.TestCase):
         self.assertEqual([p.value for p in series.points], [1.0, 2.0])
         self.assertEqual(series.points[0].ts.tzinfo, UTC)
         self.assertEqual((series.resource, series.metric, series.scope), ("activity-errors", "log query", "ws-1"))
+
+    def test_a_resource_id_is_queried_as_a_resource(self):
+        rid = "/subscriptions/sub-1/resourceGroups/rg/providers/Microsoft.OperationalInsights/workspaces/w"
+        spec = make_spec(name="x", provider="azure", selector={"workspace_id": rid, "query": "AzureActivity"})
+        fake = FakeLogs([[datetime(2026, 10, 28, 11, 0), 1]])
+        series = AzureProvider(logs_client=fake).fetch(spec, NOW - timedelta(hours=1), NOW)
+        self.assertEqual(fake.call[:2], ("resource", rid))
+        self.assertEqual(series.scope, "sub-1")
 
     def test_partial_result_is_an_error(self):
         with self.assertRaises(RuntimeError):

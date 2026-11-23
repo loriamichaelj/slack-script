@@ -102,7 +102,7 @@ metrics:
   # or, on Azure, a KQL query whose rows are counted per period, as here.
   - name: role-assignments
     provider: azure
-    workspace_id: 00000000-0000-0000-0000-000000000000  # the Log Analytics workspace (customer) ID
+    workspace_id: 00000000-0000-0000-0000-000000000000  # the workspace's customer ID, or its full resource ID
     query: AzureActivity | where OperationNameValue =~ "Microsoft.Authorization/roleAssignments/write"
     category: security
     detector: threshold

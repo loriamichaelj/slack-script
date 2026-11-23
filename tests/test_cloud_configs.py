@@ -21,7 +21,7 @@ VALUES = {
         "state_url": "https://acct.blob.core.windows.net/app/state/alerts.json",
         "state_account_id": "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/acct",
         "subscription_scope": "/subscriptions/s",
-        "audit_workspace_id": "00000000-0000-0000-0000-000000000000",
+        "audit_workspace_id": "/subscriptions/s/resourceGroups/rg/providers/Microsoft.OperationalInsights/workspaces/w",
         "budget": "5",
     },
 }
