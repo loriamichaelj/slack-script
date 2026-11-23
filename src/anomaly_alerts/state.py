@@ -173,13 +173,32 @@ class StateStore:
         entry = self._entries.get(fingerprint)
         return entry if entry and entry.get("ts") else None
 
-    def open_thread(self, fingerprint: str, ts: str, payload: dict, now: datetime) -> None:
+    def open_thread(
+        self, fingerprint: str, ts: str, payload: dict, now: datetime, *, group: str | None = None,
+        line: str | None = None,
+    ) -> None:
+        """group is the summary message's id when this alert came in a group, and line is its
+        line in that summary."""
         entry = self._entries.setdefault(fingerprint, {})
         entry.update({"ts": ts, "payload": payload, "opened": now.isoformat(), "quiet": 0})
+        for key, value in (("group", group), ("line", line)):
+            if value is None:
+                entry.pop(key, None)
+            else:
+                entry[key] = value
+        entry.pop("resolved_line", None)
 
-    def update_thread(self, fingerprint: str, payload: dict) -> None:
-        self._entries[fingerprint]["payload"] = payload
-        self._entries[fingerprint]["quiet"] = 0
+    def update_thread(self, fingerprint: str, payload: dict, line: str | None = None) -> None:
+        entry = self._entries[fingerprint]
+        entry["payload"] = payload
+        entry["quiet"] = 0
+        if line is not None and "group" in entry:
+            entry["line"] = line
+
+    def group_members(self, group: str) -> list[dict]:
+        """Every alert that came in this group, open or resolved, oldest first."""
+        members = [e for e in self._entries.values() if e.get("group") == group]
+        return sorted(members, key=lambda e: e.get("opened") or e.get("at") or "")
 
     def open_threads(self) -> dict[str, dict]:
         return {fp: e for fp, e in self._entries.items() if e.get("ts")}
@@ -194,11 +213,14 @@ class StateStore:
         if fingerprint in self._entries:
             self._entries[fingerprint]["quiet"] = 0
 
-    def close_thread(self, fingerprint: str) -> None:
-        """The alert resolved. The cooldown entry stays, so a quick return does not re-alert at once."""
+    def close_thread(self, fingerprint: str, resolved_line: str | None = None) -> None:
+        """The alert resolved. The cooldown entry stays, so a quick return does not re-alert at
+        once, and so does its place in a group, shown as resolved."""
         entry = self._entries.get(fingerprint, {})
         for key in ("ts", "payload", "opened", "quiet"):
             entry.pop(key, None)
+        if resolved_line is not None and "group" in entry:
+            entry["resolved_line"] = resolved_line
 
     def last_saved(self) -> datetime | None:
         """When an alert run last saved this file, or None if none has. Every run saves it."""
