@@ -32,7 +32,7 @@ USER app
 ENTRYPOINT ["anomaly-alerts"]
 
 # ---- AWS Lambda: the same code behind Lambda's runtime, with the handler as the command.
-FROM public.ecr.aws/lambda/python:3.12@sha256:ca6bfddec7726813ba7251ac1a14c8aefbcc76b18343267c3b5f339c8db2c758 AS lambda
+FROM public.ecr.aws/lambda/python:3.12@sha256:f229f304f82f5016fe26e4714d05b6a8196e0c6c61b463112841a5e3c3647163 AS lambda
 
 ARG EXTRAS=aws
 
